@@ -1,52 +1,64 @@
 # osu! External ASIO Sound
 
-Low-latency sfx player modified from rustbell's keyasio and [zzhouhe's AsioHookForOsu](https://github.com/zzhouhe/AsioHookForOsu) using ASIO with [FMOD Core](https://www.fmod.com) \(Ver. 2.01.03\)  
+Low-latency sample / hitsound forwarding for current `osu! lazer`, based on external ASIO playback through [FMOD Core](https://www.fmod.com) and a BASS/BASSmix hook.
 
-## ⚠Attention!
+## Attention
 
-**This program will modify osu!'s memory and may lead to a md5 hash error when you sign in. Furthermore, it may cause your account banned (no ban has been reported). Please use this program offline. Or sign in before if you can accept the risk.**
+This tool injects into the game process and patches native audio APIs. Treat it as an offline / at-your-own-risk tool.
 
-## Compile  
-Install MinGW and double click Compile.bat  
+## What changed in this fork
 
-## How to Use  
-### First Time
+- The old stable-era implementation relied on `BASS_SampleLoad(path)` and `BASS_ChannelPlay/Stop()`.
+- Current `osu! lazer` loads samples from memory and routes playback through `BASSmix`.
+- This fork hooks `BASS_SampleLoad(memory)`, `BASS_SampleGetChannel()`, `BASS_ChannelSetAttribute()`, `BASS_ChannelFlags()`, and `BASSmix` pause/unpause/remove events instead.
+- Only sample-style audio is forwarded to ASIO. Music tracks still play through lazer's normal output path.
+- Now support volume / debug log control in config file / program.
 
-You need:   
-	2 audio outputs device, e.g. Onboard Audio with a USB Audio DAC  
-	2 headphones or speakers you can use at the same time  
+## Required libraries
 
-Install ASIO4ALL   
+For current Windows desktop lazer builds, use **x64** versions of all native dependencies:
 
-Plug your headphones in  
+- `fmod_vc.lib`
+- `fmod.dll`
+- `libMinHook.x64.lib`
 
-In your windows audio control panel, set one of your audio output device as the default device for other programs  
+They must all match the architecture of:
 
-Run osu!asio_sound.exe, select asio4all and then open the asio4all control panel, select your **Another** audio output device and deselect other devices (maybe you need to click the "Advanced Options" Botton on the bottom right corner first)  
+- `osu!asio_sound.exe`
+- `osu!asio_sound.dll`
+- the target `osu! lazer` process
 
-If you don't hear anything, check the asio4all control panel and set a larger Buffer Size  
+## Compile
 
-\* You need to close effect sounds
+Use an x64 Visual Studio Developer Command Prompt.
 
-\* You need to select **ignore beatmap hitsounds**
+1. Put x64 FMOD VC import library in `lib/` as `fmod_vc.lib`.
+2. Put x64 `fmod.dll` next to the built executables or somewhere on `PATH`.
+3. Put x64 MinHook library in `lib/` as `libMinHook.x64.lib`.
+4. Run `Compile.bat` from an **x64** Visual Studio Developer Command Prompt.
 
-\* This program will only play the hit-sounds&sfx in your skin, copy sound files  in **soundpack** into your skin folder to fill the missing sounds
+The previous x86-only MinGW setup is no longer the target.
 
-\* You need to delete **spinnerspin** & **\*-sliderslide** & **\*-sliderwhistle** hit-sounds in your skin
+## How to use
 
-\* You need to adjust your osu's **Universal offset** to about -32ms
+### First time
+
+You need:
+
+- two audio output devices, for example onboard audio plus a USB DAC
+- two headphones or speakers you can use at the same time
+
+Install ASIO4ALL, plug the playback device in, and set your normal Windows default output separately for other programs.
+
+Run `config.exe` or `osu!asio_sound.exe`, choose your ASIO device, and confirm playback works on the ASIO path.
+
+If you hear crackling or nothing at all, increase ASIO buffer size.
+
+You may still need to calibrate offset for your ASIO chain.
 
 ### Generally
 
-0) Execute config.exe.
-
-1) Open osu!.
-
-2) Execute osu!asio_sound.exe.
-
-3) Reload your skin.
-
-4) Play.
-
-
-
+1. Run `config.exe` if you need to change ASIO driver, sample rate, or buffer size.
+2. Open `osu! lazer`.
+3. Run `osu!asio_sound.exe`.
+4. Play.

@@ -26,30 +26,121 @@ typedef int BOOL;
 
 #define DETAILOUTPUT 0
 
-#define BASS_ATTRIB_VOL				2
+#define BASS_ATTRIB_FREQ            1
+#define BASS_ATTRIB_VOL             2
+#define BASS_ATTRIB_PAN             3
+
+#define BASS_SAMPLE_8BITS           1
+#define BASS_SAMPLE_LOOP            4
+#define BASS_SAMPLE_FLOAT           256
+#define BASS_ORIGRES_FLOAT          65536
+
+#define BASS_MIXER_CHAN_PAUSE       0x2000
 
 typedef unsigned __int64 QWORD;
-typedef DWORD HSAMPLE;		// sample handle
-typedef DWORD HCHANNEL;		// playing sample's channel handle
+typedef DWORD HSAMPLE;
+typedef DWORD HCHANNEL;
 
-const int LoadPoolSize=4096;
-const int PlayPoolSize=512;
-const int StopPoolSize=512;
-struct sharepool{
-	struct LoadS{
-		int head,tail;
-		int pool[LoadPoolSize];
-	}Load;
-	struct PlayS{
-		int head,tail;
-		struct PlayP{
-			double Time;
-			HSAMPLE hSample;
-			HCHANNEL Ch;
-		}pool[PlayPoolSize];
-	}Play;
-	struct StopS{
-		int head,tail;
-		HCHANNEL pool[StopPoolSize];
-	}Stop;
+const int EVENT_POOL_SIZE = 8192;
+const int MAPPING_NAME_LENGTH = 128;
+
+enum EventType
+{
+    EVENT_NONE = 0,
+    EVENT_SAMPLE_LOADED = 1,
+    EVENT_SAMPLE_FREED = 2,
+    EVENT_CHANNEL_CREATED = 3,
+    EVENT_CHANNEL_UPDATED = 4,
+    EVENT_CHANNEL_STATE = 5,
+    EVENT_CHANNEL_REMOVED = 6,
+};
+
+enum ChannelState
+{
+    CHANNEL_STATE_PAUSED = 0,
+    CHANNEL_STATE_PLAYING = 1,
+};
+
+enum ChannelUpdateMask
+{
+    CHANNEL_UPDATE_VOLUME = 1 << 0,
+    CHANNEL_UPDATE_PAN = 1 << 1,
+    CHANNEL_UPDATE_FREQUENCY = 1 << 2,
+    CHANNEL_UPDATE_LOOP = 1 << 3,
+};
+
+enum SampleFormat
+{
+    SAMPLE_FORMAT_UNKNOWN = 0,
+    SAMPLE_FORMAT_PCM8 = 1,
+    SAMPLE_FORMAT_PCM16 = 2,
+    SAMPLE_FORMAT_PCM24 = 3,
+    SAMPLE_FORMAT_PCM32 = 4,
+    SAMPLE_FORMAT_FLOAT = 5,
+};
+
+struct SampleLoadedPayload
+{
+    HSAMPLE sample;
+    DWORD sampleRate;
+    DWORD channels;
+    DWORD format;
+    DWORD dataLength;
+    DWORD flags;
+    char mappingName[MAPPING_NAME_LENGTH];
+};
+
+struct SampleFreedPayload
+{
+    HSAMPLE sample;
+};
+
+struct ChannelCreatedPayload
+{
+    HSAMPLE sample;
+    HCHANNEL channel;
+    DWORD flags;
+};
+
+struct ChannelUpdatedPayload
+{
+    HCHANNEL channel;
+    DWORD updateMask;
+    float volume;
+    float pan;
+    float frequency;
+    DWORD looping;
+};
+
+struct ChannelStatePayload
+{
+    HCHANNEL channel;
+    DWORD state;
+    double time;
+};
+
+struct ChannelRemovedPayload
+{
+    HCHANNEL channel;
+};
+
+struct Event
+{
+    DWORD type;
+    union
+    {
+        SampleLoadedPayload sampleLoaded;
+        SampleFreedPayload sampleFreed;
+        ChannelCreatedPayload channelCreated;
+        ChannelUpdatedPayload channelUpdated;
+        ChannelStatePayload channelState;
+        ChannelRemovedPayload channelRemoved;
+    } data;
+};
+
+struct sharepool
+{
+    volatile LONG head;
+    volatile LONG tail;
+    Event events[EVENT_POOL_SIZE];
 };
