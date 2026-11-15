@@ -1,0 +1,146 @@
+﻿# Dot-source from the standalone watcher. UTF-8 with BOM in distributions.
+# BEGIN GENERATED ENGLISH FALLBACK
+function Get-AsioEnglishFallback { return @{
+    'language.name' = 'English'
+    'language.saved' = 'Language saved: {0}. Restart open tool windows to apply it everywhere.'
+    'language.save_failed' = 'Could not save the language preference next to the tool. Move the folder to a writable location.'
+    'language.invalid' = 'Unknown language: {0}. Available: zh-CN, zh-TW, en, fr, es.'
+    'language.menu' = 'Choose language / 选择语言 / 選擇語言 / Choisir la langue / Elegir idioma'
+    'language.prompt' = 'Enter 1-5 (Enter = English):'
+    'language.selection_invalid' = 'Please enter a number from 1 to 5.'
+    'common.close' = 'Press Enter to close this window.'
+    'common.start_failed' = 'Startup did not complete. Keep the error information above.'
+    'config.invalid' = 'The configuration is incomplete or invalid. Defaults are shown; the original file was not overwritten: {0}'
+    'config.integer' = 'Enter an integer, or press Enter to keep the current value.'
+    'config.range' = 'Enter a value between {0} and {1}.'
+    'config.usage' = 'Usage: config.exe [--show | --list | --language [code] | --current-language | --list-languages]'
+    'config.create_failed' = 'Could not create FMOD: {0}'
+    'config.enumerate_failed' = 'Could not enumerate ASIO devices: {0}'
+    'config.devices' = 'Available ASIO devices:'
+    'config.device_line' = '  DeviceID {0}: {1} ({2} Hz, {3} outputs)'
+    'config.no_devices' = 'No ASIO driver was found. Install the audio interface manufacturer''s driver and try again.'
+    'config.choose' = 'Choose your audio interface. Enter keeps the value in brackets. Output is stereo L/R.'
+    'config.driver' = 'ASIO device number'
+    'config.buffer' = 'Buffer size in samples'
+    'config.rate' = 'Sample rate in Hz (0 = driver default)'
+    'config.volume' = 'Independent ASIO volume in percent'
+    'config.debug' = 'Detailed logging: 0 = off, 1 = on'
+    'config.checking' = 'Checking the selected device without playing a test sound. Close other programs using ASIO first.'
+    'config.default_rate_failed' = 'Could not read the driver''s default sample rate. Configuration was not saved.'
+    'config.check_failed' = 'Device check failed. The new configuration was not saved: {0}'
+    'config.write_failed' = 'Cannot write config.ini in the tool folder. Move the folder to a writable location.'
+    'config.save_failed' = 'Could not save config.ini. The original configuration was preserved.'
+    'config.marker_failed' = 'Configuration was saved, but the first-use device marker could not be written.'
+    'config.saved' = 'Configuration saved to config.ini next to config.exe. The device will now be released.'
+    'launcher.intro' = 'Standalone ASIO tool: detects and attaches to a normally launched client. Keep this window open and start your game as usual. Use config.exe/config.ini in this folder.'
+    'launcher.failed' = 'Could not start the attachment entry point. Windows error: {0}. Press Enter to close.'
+    'launcher.usage' = 'Usage: osu!asio_sound.exe [--language [code] | --current-language | --list-languages | --help]'
+    'watcher.process_prompt' = 'Game executable name (default: osu!.exe; enter a file name, not a client directory)'
+    'watcher.invalid_process' = 'Invalid process file name.'
+    'watcher.already_running' = 'The standalone ASIO tool is already running. Use the existing window.'
+    'watcher.waiting' = 'Standalone ASIO tool started. Waiting for {0}.exe. Start your game as usual.'
+    'watcher.behavior' = 'The tool does not start, copy or modify the game client. Use config.exe to choose an ASIO device.'
+    'watcher.config' = 'Configuration: {0}. Output Volume updates about 0.5 seconds after saving. Driver/buffer/sample-rate changes require restarting the game.'
+    'watcher.trace' = 'Bounded playback tracing is enabled for this session.'
+    'watcher.first_use' = 'First use: choose your own ASIO driver and save the configuration.'
+    'watcher.config_failed' = 'Device configuration was not completed.'
+    'watcher.found' = 'Client found: PID={0}; {1}'
+    'watcher.attach_failed' = 'Attachment failed or stopped: exit={0}. Native output is retained; restart the game before trying again. Log: {1}'
+    'watcher.released' = 'The game has exited. The ASIO device has been released.'
+    'watcher.continue' = 'Waiting for the next client process. Close this window to stop the tool.'
+    'watcher.timeout' = 'Timed out waiting for a compatible client.'
+    'backend.config_rejected' = '[ASIO config] Current configuration is unreadable or incomplete. Keeping the last valid values: {0}'
+    'backend.volume_applied' = '[ASIO config] Applied Output Volume={0}%; configuration: {1}'
+    'backend.config_failed' = '[ASIO config] Cannot read a complete configuration next to the executable: {0}; path={1}. Run config.exe in the same folder first.'
+    'backend.config_loaded' = '[ASIO config] PID={0}; config={1}; Output Volume={2}%. Save to update the volume live; restart the game for device/buffer/sample-rate changes.'
+    'backend.fault' = '[ASIO attach] Queue or adapter failure. ASIO has stopped and native output is restored. Restart the game before trying again.'
+    'backend.internal' = 'This is the internal ASIO backend. Run osu!asio_sound.exe and wait for the client; do not run this file directly.'
+    'backend.default_rate_failed' = '[ASIO config] Could not read the driver''s default sample rate.'
+    'backend.bus_failed' = '[ASIO config] Could not set the independent output-bus volume: {0}'
+    'backend.access_failed' = '[ASIO attach] Cannot access PID={0}, Windows error={1}. Run the tool and game with the same permission level.'
+    'backend.session_failed' = '[ASIO attach] Cannot create this attachment session. Do not start another backend for the same process.'
+    'backend.adapter_failed' = '[ASIO attach] Managed adapter is not ready, error={0}. Native game output is retained.'
+    'backend.ready' = '[ASIO attach] PID={0} is ready: native hook and runtime volume adapter installed.'
+    'backend.logger_failed' = '[ASIO log] Could not initialize the background diagnostic queue.'
+    'backend.disabled' = '[FMOD] ASIO backend disabled; native fallback: {0}'
+    'backend.inject_failed' = 'DLL injection failed.'
+    'backend.create_failed' = 'Could not create the FMOD system: {0}'
+    'backend.asio_failed' = 'ASIO configuration failed: {0}'
+    'backend.stereo_failed' = 'Stereo output configuration failed: {0}'
+    'backend.init_failed' = 'FMOD initialization failed: {0}'
+    'backend.format_failed' = 'Could not query the software output format: {0}'
+    'backend.lease_failed' = 'Could not initialize the ASIO ownership lease: {0}'
+    'backend.info' = '[FMOD] Device: {0}; driver={1}; ASIO volume={2}%; output={3} Hz, stereo L/R; software buffer={4} x {5}.'
+    'backend.buffer_note' = '[FMOD] Software buffer duration: {0} ms. This is not a measured end-to-end latency.'
+    'managed.start_failed' = 'Adapter startup failed; native output is retained: {0}'
+    'managed.early_only' = 'Early loading requires DOTNET_STARTUP_HOOKS before game/framework assemblies are loaded.'
+    'managed.ambiguous' = 'Multiple game/framework assembly sets were found. The attachment target is ambiguous.'
+    'managed.timeout' = 'Timed out waiting for game/framework assemblies. Restart the game and try again.'
+    'managed.failed' = 'Adapter installation failed; native output is retained.'
+    'managed.ready' = 'Both audio adapters are installed. Live attachment is ready.'
+    'managed.installed' = 'Installed {0} {1}; audio implementation contract matched.'
+    'managed.native' = 'Native output is retained: {0} {1}'
+    'managed.graph' = 'Invalid volume aggregation graph.'
+    'managed.il' = 'The Play zero-volume gate IL layout does not match.'
+    'managed.attaching' = 'Adapting the running client, PID={0}.'
+    'managed.attach_error' = 'Attachment failed; native output is retained: {0} {1}'
+    'contract.member' = 'Unsupported audio member: {0}'
+    'contract.operand' = 'Unsupported audio IL operand: {0}'
+    'contract.type' = 'Required audio type is missing: {0}'
+    'contract.missing' = 'The reviewed audio implementation contract is missing.'
+    'contract.mismatch' = 'Audio implementation contract mismatch: {0} {1}. Changed types: {2}. This client requires a new review.'
+    'device.pcm' = 'PCM self-test: {0}, peak={1}, duration=0.35 s. No hardware device was opened and no sound was played.'
+    'device.pass' = 'passed'
+    'device.fail' = 'failed'
+    'device.silent' = 'FMOD NOSOUND stereo-matrix self-test: {0}. No hardware output was opened.'
+    'device.enumerate_failed' = 'Device enumeration failed: {0}'
+    'device.list' = 'ASIO devices (using the same FMOD as the game backend):'
+    'device.entry' = 'DeviceID {0}: {1}; driver reports {2} Hz / {3} output channels'
+    'device.none' = 'No ASIO device is available.'
+    'device.intro' = 'This tool does not start or inject into the game, or change audio settings. Lower your headphone/speaker volume first.'
+    'device.prompt' = 'Enter a device number:'
+    'device.invalid' = 'Invalid device number.'
+    'device.confirm' = 'Two quiet tones will play: left, then right, on Playback 1/2. Press Enter to start, or close the window to cancel.'
+    'device.open_failed' = 'Could not open the device: {0}'
+    'device.channel' = 'Physical ASIO channel {0}: {1}; FMOD speaker={2}'
+    'device.unknown' = 'unknown'
+    'device.left' = 'Left channel (Playback 1)...'
+    'device.right' = 'Right channel (Playback 2)...'
+    'device.play_failed' = 'Playback call failed: {0}'
+    'device.done' = 'Playback calls completed and the device was released. Confirm audibility yourself; this tool cannot detect whether sound reached your headphones.'
+} }
+# END GENERATED ENGLISH FALLBACK
+function Initialize-AsioLanguage([string]$Root) {
+    $script:AsioLanguage='en'
+    $script:AsioText=Get-AsioEnglishFallback
+    $preference=Join-Path $Root 'language.ini'
+    if(Test-Path -LiteralPath $preference) {
+        try {
+            foreach($line in [IO.File]::ReadAllLines($preference,[Text.Encoding]::UTF8)) {
+                if($line -match '^\s*Language\s*=\s*(zh-CN|zh-TW|en|fr|es)\s*$') { $script:AsioLanguage=$Matches[1] }
+            }
+        } catch { }
+    }
+    foreach($code in @('en',$script:AsioLanguage)|Select-Object -Unique) {
+        $file=Join-Path $Root ("locales\$code.lang")
+        if(!(Test-Path -LiteralPath $file)){continue}
+        try {
+            foreach($line in [IO.File]::ReadAllLines($file,[Text.UTF8Encoding]::new($false,$true))) {
+                if(!$line -or $line.StartsWith('#')){continue}
+                $equals=$line.IndexOf('=')
+                if($equals -gt 0){$key=$line.Substring(0,$equals).Trim();if($script:AsioText.ContainsKey($key)){$script:AsioText[$key]=$line.Substring($equals+1)}}
+            }
+        } catch {
+            # A broken/locked translation must not prevent client detection.
+            # Built-in English remains available even if en.lang is missing.
+        }
+    }
+}
+function Get-AsioText([string]$Key,[object[]]$Values=@()) {
+    if(!$script:AsioText.ContainsKey($Key)){return $Key}
+    $template=[string]$script:AsioText[$Key]
+    $rendered=$template
+    # One pass: braces inside a path/value cannot become another placeholder.
+    $evaluator={param($match) $number=0;if([int]::TryParse($match.Groups[1].Value,[ref]$number) -and $number -lt $Values.Count){return [Convert]::ToString($Values[$number],[Globalization.CultureInfo]::InvariantCulture)};return $match.Value}.GetNewClosure()
+    return [regex]::Replace($rendered,'\{(\d+)\}',[Text.RegularExpressions.MatchEvaluator]$evaluator)
+}

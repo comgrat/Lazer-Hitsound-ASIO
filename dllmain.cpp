@@ -5,9 +5,16 @@
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <cmath>
+#include <mutex>
 
 #include "MinHook.h"
 #include "sharepool.h"
+#include "routing.h"
+#include "live_attach.h"
+#include "managed_host.h"
+#include "async_text_log.h"
 
 using namespace std;
 
@@ -23,9 +30,14 @@ struct BASS_SAMPLE
     DWORD Chans;
     DWORD Mingap;
     DWORD Mode3D;
-    float VAM;
-    float Priority;
+    float MinDist;
+    float MaxDist;
+    DWORD IAngle;
+    DWORD OAngle;
+    float OutVol;
+    DWORD Reserved[2];
 };
+static_assert(sizeof(BASS_SAMPLE) == 68, "BASS_SAMPLE ABI must match BASS 2.4");
 
 struct SampleInfo
 {
@@ -36,6 +48,7 @@ struct SampleInfo
     DWORD flags;
     string mappingName;
     HANDLE mappingHandle;
+    DWORD generation = 0;
 
     SampleInfo()
         : sampleRate(0), channels(0), format(SAMPLE_FORMAT_UNKNOWN), dataLength(0), flags(0), mappingHandle(NULL)
@@ -51,6 +64,12 @@ struct ChannelInfo
     float frequency;
     bool looping;
     bool paused;
+    bool eligible = false;
+    float sampleGain = 0;
+    DWORD generation = 0;
+    DWORD incarnation = 0; // Original allocation identity survives only explicit restart epochs.
+    asio::RoutingState routing;
+    bool restorePending = false;
 
     ChannelInfo()
         : sample(0), volume(1.0f), pan(0.0f), frequency(0.0f), looping(false), paused(true)
@@ -97,19 +116,88 @@ static LPVOID lpBase = NULL;
 static CRITICAL_SECTION queueLock;
 static CRITICAL_SECTION stateLock;
 static CRITICAL_SECTION logLock;
-static bool hooksInitialised = false;
+static std::atomic<bool> hooksInitialised{false};
+static std::atomic<bool> liveManagedReady{true};
 static bool locksInitialised = false;
 static bool logLockInitialised = false;
-static volatile bool pollerRunning = false;
+static std::atomic<bool> pollerRunning{false};
+static LONG nextGeneration = 0;
+static std::recursive_mutex samplePublishMutex;
 static HMODULE selfModule = NULL;
 static char logFilePath[MAX_PATH] = {0};
 static char configFilePath[MAX_PATH] = {0};
 static int debugLogEnabled = 0;
+static asio::AsyncTextLog* hookTextLog = nullptr;
+static std::atomic<bool> traceEnabled{false};
+// Optional lock-free diagnostic counters, read by the managed timer.
+static std::atomic<DWORD> traceCounters[12]{};
+static void traceCount(unsigned index)
+{
+    if (traceEnabled) traceCounters[index].fetch_add(1, std::memory_order_relaxed);
+}
+extern "C" __declspec(dllexport) DWORD AsioBridgeTrace(DWORD index)
+{
+    return index < 12 ? traceCounters[index].load(std::memory_order_relaxed) : 0;
+}
 
 static unordered_map<HSAMPLE, SampleInfo> sampleInfoMap;
 static unordered_map<HCHANNEL, ChannelInfo> channelInfoMap;
 
-static void publishChannelState(HCHANNEL channel, DWORD state);
+static bool publishChannelState(HCHANNEL channel, DWORD state);
+static void logPrintf(const char *format, ...);
+
+static void restoreNativeVolume(HCHANNEL channel, ChannelInfo &info)
+{
+    bool restored = pOrigBASS_ChannelSetAttribute(channel, BASS_ATTRIB_VOL, info.volume) != FALSE;
+    if (!restored && !info.restorePending)
+        logPrintf("[ASIO Hook] native volume restore failed channel=%lu; retrying\n", (unsigned long)channel);
+    info.restorePending = !restored;
+    if (!restored && MyPool) InterlockedExchange(&MyPool->backendReady, 0);
+}
+
+static sharepool::SampleAck *findSampleAck(HSAMPLE sample, bool allocate = false)
+{
+    if (!MyPool) return nullptr;
+    sharepool::SampleAck *empty = nullptr;
+    for (int probe = 0; probe < SAMPLE_ACK_COUNT; ++probe)
+    {
+        auto &ack = MyPool->sampleAcks[(sample + probe) % SAMPLE_ACK_COUNT];
+        if (DWORD(ack.sample) == sample) return &ack;
+        if (!ack.sample && !empty) empty = &ack;
+    }
+    if (allocate && empty) { InterlockedExchange(&empty->sample, LONG(sample)); return empty; }
+    return nullptr;
+}
+
+static bool backendAlive()
+{
+    return MyPool != NULL && MyPool->magic == ASIO_PROTOCOL_MAGIC &&
+        MyPool->targetPid == GetCurrentProcessId() && MyPool->backendReady != 0 &&
+        DWORD(GetTickCount() - DWORD(MyPool->heartbeat)) < 250;
+}
+
+static bool sampleReady(HSAMPLE sample)
+{
+    auto it = sampleInfoMap.find(sample);
+    if (it == sampleInfoMap.end() || MyPool == NULL)
+        return false;
+    const auto *ack = findSampleAck(sample);
+    return ack && DWORD(ack->readyGeneration) == it->second.generation;
+}
+
+static bool queueAvailable()
+{
+    return MyPool != NULL && (MyPool->tail + 1) % EVENT_POOL_SIZE != MyPool->head;
+}
+
+static DWORD channelGeneration(HCHANNEL channel)
+{
+    EnterCriticalSection(&stateLock);
+    auto it = channelInfoMap.find(channel);
+    DWORD generation = it != channelInfoMap.end() ? it->second.generation : 0;
+    LeaveCriticalSection(&stateLock);
+    return generation;
+}
 
 static void initLogPath()
 {
@@ -198,16 +286,7 @@ static void logPrintf(const char *format, ...)
     vsnprintf(buffer, sizeof(buffer), format, args);
     va_end(args);
 
-    EnterCriticalSection(&logLock);
-
-    FILE *fp = fopen(logFilePath, "a");
-    if (fp != NULL)
-    {
-        fputs(buffer, fp);
-        fclose(fp);
-    }
-
-    LeaveCriticalSection(&logLock);
+    if (hookTextLog) hookTextLog->write("%s",buffer);
 }
 
 static double CPUclock()
@@ -221,7 +300,7 @@ static double CPUclock()
 
 static bool pushEvent(const Event &event)
 {
-    if (MyPool == NULL)
+    if (MyPool == NULL || !MyPool->backendReady)
         return false;
 
     EnterCriticalSection(&queueLock);
@@ -229,6 +308,7 @@ static bool pushEvent(const Event &event)
     LONG next = (MyPool->tail + 1) % EVENT_POOL_SIZE;
     if (next == MyPool->head)
     {
+        InterlockedExchange(&MyPool->backendReady, 0);
         LeaveCriticalSection(&queueLock);
         logPrintf("[ASIO Hook] Event queue full, dropping type=%lu\n", (unsigned long)event.type);
         return false;
@@ -274,6 +354,12 @@ static DWORD bytesPerSample(DWORD format)
 
 static bool publishSample(HSAMPLE sample)
 {
+    std::lock_guard<std::recursive_mutex> publishGuard(samplePublishMutex);
+    EnterCriticalSection(&stateLock);
+    bool existingSample = sampleInfoMap.find(sample) != sampleInfoMap.end();
+    LeaveCriticalSection(&stateLock);
+    if (existingSample) return true;
+    if (!backendAlive()) return false;
     if (sample == 0 || pOrigBASS_SampleGetInfo == NULL || pOrigBASS_SampleGetData == NULL)
     {
         logPrintf("[ASIO Hook] publishSample skipped sample=%lu reason=invalid_state getInfo=%d getData=%d\n",
@@ -308,7 +394,8 @@ static bool publishSample(HSAMPLE sample)
     }
 
     char mappingName[MAPPING_NAME_LENGTH];
-    sprintf(mappingName, "Local\\OsuAsioSample_%lu_%lu", GetCurrentProcessId(), (unsigned long)sample);
+    DWORD generation = DWORD(InterlockedIncrement(&nextGeneration));
+    sprintf(mappingName, "Local\\OsuAsioSample_%lu_%lu_%lu", GetCurrentProcessId(), (unsigned long)sample, (unsigned long)generation);
 
     HANDLE mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, info.Length, mappingName);
     if (mapping == NULL)
@@ -351,11 +438,13 @@ static bool publishSample(HSAMPLE sample)
     sampleInfo.flags = info.Flags;
     sampleInfo.mappingName = mappingName;
     sampleInfo.mappingHandle = mapping;
+    sampleInfo.generation = generation;
 
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_SAMPLE_LOADED;
     event.data.sampleLoaded.sample = sample;
+    event.data.sampleLoaded.generation = generation;
     event.data.sampleLoaded.sampleRate = sampleInfo.sampleRate;
     event.data.sampleLoaded.channels = sampleInfo.channels;
     event.data.sampleLoaded.format = sampleInfo.format;
@@ -374,6 +463,15 @@ static bool publishSample(HSAMPLE sample)
         hadExisting = true;
     }
     sampleInfoMap[sample] = sampleInfo;
+    if (MyPool != NULL)
+    {
+        auto *ack = findSampleAck(sample, true);
+        if (ack)
+        {
+            InterlockedExchange(&ack->readyGeneration, 0);
+            InterlockedExchange(&ack->requestedGeneration, LONG(generation));
+        }
+    }
     LeaveCriticalSection(&stateLock);
 
     if (pushEvent(event))
@@ -432,33 +530,31 @@ static DWORD WINAPI monitorChannels(LPVOID)
 
     while (pollerRunning)
     {
-        vector<HCHANNEL> playingChannels;
-        vector<HCHANNEL> pausedChannels;
-
         EnterCriticalSection(&stateLock);
         for (auto &entry : channelInfoMap)
         {
+            if (entry.second.restorePending)
+                restoreNativeVolume(entry.first, entry.second);
+            if (entry.second.routing.suppressNative() && !backendAlive())
+            {
+                publishChannelState(entry.first, CHANNEL_STATE_PAUSED);
+                InterlockedExchange(&MyPool->backendReady, 0);
+                entry.second.routing.failover();
+                restoreNativeVolume(entry.first, entry.second);
+            }
+            if (!entry.second.routing.playing)
+                continue;
             DWORD active = pOrigBASS_ChannelIsActive != NULL ? pOrigBASS_ChannelIsActive(entry.first) : 0;
             bool shouldPlay = active == BASS_ACTIVE_PLAYING || active == BASS_ACTIVE_STALLED;
 
-            if (shouldPlay && entry.second.paused)
-            {
-                entry.second.paused = false;
-                playingChannels.push_back(entry.first);
-            }
-            else if (!shouldPlay && !entry.second.paused)
+            if (!shouldPlay && !entry.second.paused)
             {
                 entry.second.paused = true;
-                pausedChannels.push_back(entry.first);
+                entry.second.routing.pause();
+                publishChannelState(entry.first, CHANNEL_STATE_PAUSED);
             }
         }
         LeaveCriticalSection(&stateLock);
-
-        for (HCHANNEL channel : playingChannels)
-            publishChannelState(channel, CHANNEL_STATE_PLAYING);
-
-        for (HCHANNEL channel : pausedChannels)
-            publishChannelState(channel, CHANNEL_STATE_PAUSED);
 
         Sleep(1);
     }
@@ -480,6 +576,7 @@ static void publishChannelCreated(HSAMPLE sample, HCHANNEL channel, DWORD flags)
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_CHANNEL_CREATED;
+    event.generation = channelGeneration(channel);
     event.data.channelCreated.sample = sample;
     event.data.channelCreated.channel = channel;
     event.data.channelCreated.flags = flags;
@@ -491,24 +588,50 @@ static void publishChannelUpdated(HCHANNEL channel, DWORD mask, const ChannelInf
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_CHANNEL_UPDATED;
+    event.generation = info.generation;
     event.data.channelUpdated.channel = channel;
     event.data.channelUpdated.updateMask = mask;
-    event.data.channelUpdated.volume = info.volume;
+    event.data.channelUpdated.volume = info.sampleGain;
     event.data.channelUpdated.pan = info.pan;
     event.data.channelUpdated.frequency = info.frequency;
     event.data.channelUpdated.looping = info.looping ? 1 : 0;
     pushEvent(event);
 }
 
-static void publishChannelState(HCHANNEL channel, DWORD state)
+static bool publishChannelState(HCHANNEL channel, DWORD state)
 {
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_CHANNEL_STATE;
+    event.generation = channelGeneration(channel);
     event.data.channelState.channel = channel;
     event.data.channelState.state = state;
     event.data.channelState.time = DETAILOUTPUT ? CPUclock() : 0;
-    pushEvent(event);
+    EnterCriticalSection(&stateLock);
+    auto current = channelInfoMap.find(channel);
+    if (current != channelInfoMap.end())
+    {
+        event.generation = current->second.generation;
+        event.data.channelState.sample = current->second.sample;
+        event.data.channelState.volume = current->second.sampleGain;
+        event.data.channelState.pan = current->second.pan;
+        event.data.channelState.frequency = current->second.frequency;
+        event.data.channelState.looping = current->second.looping;
+    }
+    bool accepted = pushEvent(event);
+    if (accepted && state == CHANNEL_STATE_PLAYING) traceCount(11);
+    if (accepted)
+        logPrintf("{\"event\":\"%s\",\"channel\":%lu,\"generation\":%lu,\"route\":\"external\",\"gain\":%.6f,\"source\":\"hook_queue\",\"tick_ms\":%llu,\"sample\":%lu}\n",
+            state == CHANNEL_STATE_PLAYING ? "start" : "pause", (unsigned long)channel,
+            (unsigned long)event.generation, event.data.channelState.volume, GetTickCount64(),
+            (unsigned long)event.data.channelState.sample);
+    if (!accepted && current != channelInfoMap.end())
+    {
+        current->second.routing.failover();
+        restoreNativeVolume(channel, current->second);
+    }
+    LeaveCriticalSection(&stateLock);
+    return accepted;
 }
 
 static void publishChannelRemoved(HCHANNEL channel)
@@ -516,8 +639,121 @@ static void publishChannelRemoved(HCHANNEL channel)
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_CHANNEL_REMOVED;
+    event.generation = channelGeneration(channel);
     event.data.channelRemoved.channel = channel;
     pushEvent(event);
+}
+
+// Caller holds stateLock. Never infer playback from a decoding channel's active state.
+static void startExternal(HCHANNEL channel, ChannelInfo &info)
+{
+    bool alive = backendAlive(), ready = sampleReady(info.sample), queue = queueAvailable();
+    traceCount(4);
+    if (!info.eligible) traceCount(5);
+    if (!alive) traceCount(6);
+    if (!ready) traceCount(7);
+    if (!queue) traceCount(8);
+    if (info.routing.route == asio::Route::Native) traceCount(9);
+    if (info.routing.start(info.eligible, alive, ready, queue))
+    {
+        // Mute only the identified channel; the native mixer still advances its timeline.
+        if (!pOrigBASS_ChannelSetAttribute(channel, BASS_ATTRIB_VOL, 0) ||
+            !publishChannelState(channel, CHANNEL_STATE_PLAYING))
+        {
+            info.routing.failover();
+            restoreNativeVolume(channel, info);
+        }
+    }
+    if (!info.routing.suppressNative())
+        restoreNativeVolume(channel, info);
+    info.paused = false;
+}
+
+static bool muteBeforeStart(HCHANNEL channel)
+{
+    EnterCriticalSection(&stateLock);
+    auto it = channelInfoMap.find(channel);
+    bool mute = it != channelInfoMap.end() && (it->second.routing.suppressNative() ||
+        (it->second.routing.route == asio::Route::Undecided && it->second.eligible &&
+         backendAlive() && sampleReady(it->second.sample) && queueAvailable()));
+    if (mute)
+        mute = pOrigBASS_ChannelSetAttribute(channel, BASS_ATTRIB_VOL, 0) != FALSE;
+    LeaveCriticalSection(&stateLock);
+    return mute;
+}
+
+static void restoreIfNative(HCHANNEL channel)
+{
+    EnterCriticalSection(&stateLock);
+    auto it = channelInfoMap.find(channel);
+    if (it != channelInfoMap.end() && !it->second.routing.suppressNative())
+        restoreNativeVolume(channel, it->second);
+    LeaveCriticalSection(&stateLock);
+}
+
+extern "C" __declspec(dllexport) BOOL AsioBridgeReady()
+{
+    return hooksInitialised && liveManagedReady && backendAlive();
+}
+
+static void AsioChannelContext(DWORD channel, float sampleGain, DWORD eligible)
+{
+    if (!hooksInitialised)
+        return;
+    if (channel == 0 && !eligible)
+    {
+        if (MyPool) InterlockedExchange(&MyPool->backendReady, 0);
+        return;
+    }
+    EnterCriticalSection(&stateLock);
+    auto it = channelInfoMap.find(channel);
+    if (it != channelInfoMap.end())
+    {
+        auto &info = it->second;
+        info.eligible = eligible && std::isfinite(sampleGain) && sampleGain >= 0 && sampleGain <= 1;
+        info.sampleGain = info.eligible ? sampleGain : 0;
+        if (!info.eligible && info.routing.suppressNative())
+        {
+            publishChannelState(channel, CHANNEL_STATE_PAUSED);
+            info.routing.failover();
+            restoreNativeVolume(channel, info);
+        }
+        publishChannelUpdated(channel, CHANNEL_UPDATE_VOLUME, info);
+    }
+    LeaveCriticalSection(&stateLock);
+}
+
+extern "C" __declspec(dllexport) DWORD AsioChannelGeneration(DWORD channel)
+{
+    return hooksInitialised ? channelGeneration(channel) : 0;
+}
+
+extern "C" __declspec(dllexport) DWORD AsioChannelPlaybackGeneration(DWORD channel, DWORD allocation)
+{
+    if (!hooksInitialised) return 0;
+    EnterCriticalSection(&stateLock);
+    auto it=channelInfoMap.find(channel);
+    DWORD result=it!=channelInfoMap.end() && it->second.incarnation==allocation ? it->second.generation : 0;
+    LeaveCriticalSection(&stateLock);
+    return result;
+}
+
+extern "C" __declspec(dllexport) void AsioChannelContextV2(DWORD channel, DWORD generation, float sampleGain, DWORD eligible)
+{
+    if (!hooksInitialised) return;
+    if (!channel) { AsioChannelContext(0, 0, 0); return; }
+    EnterCriticalSection(&stateLock);
+    auto it = channelInfoMap.find(channel);
+    if (it != channelInfoMap.end() && it->second.generation == generation)
+    {
+        traceCount(0);
+        if (eligible) traceCount(1);
+        AsioChannelContext(channel, sampleGain, eligible);
+        logPrintf("{\"event\":\"context\",\"channel\":%lu,\"generation\":%lu,\"eligible\":%lu,\"gain\":%.6f}\n",
+            (unsigned long)channel, (unsigned long)generation, (unsigned long)eligible, sampleGain);
+    }
+    else traceCount(2);
+    LeaveCriticalSection(&stateLock);
 }
 
 static bool waitForModule(const char *moduleName, HMODULE *module)
@@ -540,7 +776,7 @@ static FARPROC requireProc(HMODULE module, const char *name)
     {
         char message[256];
         sprintf(message, "Missing export: %s", name);
-        MessageBoxA(NULL, message, "Info", MB_ICONEXCLAMATION);
+        logPrintf("[ASIO Hook] %s\n", message);
     }
 
     return proc;
@@ -548,6 +784,7 @@ static FARPROC requireProc(HMODULE module, const char *name)
 
 HSAMPLE WINAPI MyBASS_SampleLoad(BOOL mem, const void *file, QWORD offset, DWORD length, DWORD max, DWORD flags)
 {
+    std::lock_guard<std::recursive_mutex> publishGuard(samplePublishMutex);
     HSAMPLE sample = pOrigBASS_SampleLoad(mem, file, offset, length, max, flags);
     logPrintf("[ASIO Hook] BASS_SampleLoad mem=%d offset=%llu length=%lu max=%lu flags=%lu -> sample=%lu\n",
               mem ? 1 : 0,
@@ -563,6 +800,10 @@ HSAMPLE WINAPI MyBASS_SampleLoad(BOOL mem, const void *file, QWORD offset, DWORD
 
 BOOL WINAPI MyBASS_SampleFree(HSAMPLE handle)
 {
+    std::lock_guard<std::recursive_mutex> publishGuard(samplePublishMutex);
+    BOOL result = pOrigBASS_SampleFree(handle);
+    if (!result)
+        return result;
     logPrintf("[ASIO Hook] BASS_SampleFree sample=%lu\n", (unsigned long)handle);
     publishSampleFreed(handle);
 
@@ -570,6 +811,13 @@ BOOL WINAPI MyBASS_SampleFree(HSAMPLE handle)
     auto sampleIt = sampleInfoMap.find(handle);
     if (sampleIt != sampleInfoMap.end())
     {
+        auto *ack = findSampleAck(handle);
+        if (ack && DWORD(ack->requestedGeneration) == sampleIt->second.generation)
+        {
+            InterlockedExchange(&ack->readyGeneration, 0);
+            InterlockedExchange(&ack->requestedGeneration, 0);
+            InterlockedExchange(&ack->sample, 0);
+        }
         if (sampleIt->second.mappingHandle != NULL)
             CloseHandle(sampleIt->second.mappingHandle);
         sampleInfoMap.erase(sampleIt);
@@ -584,7 +832,7 @@ BOOL WINAPI MyBASS_SampleFree(HSAMPLE handle)
     }
     LeaveCriticalSection(&stateLock);
 
-    return pOrigBASS_SampleFree(handle);
+    return result;
 }
 
 HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
@@ -606,6 +854,8 @@ HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
     info.sample = handle;
     info.looping = (flags & BASS_SAMPLE_LOOP) != 0;
     info.paused = true;
+    info.generation = DWORD(InterlockedIncrement(&nextGeneration));
+    info.incarnation = info.generation;
     channelInfoMap[channel] = info;
     LeaveCriticalSection(&stateLock);
 
@@ -616,37 +866,44 @@ HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
 
 BOOL WINAPI MyBASS_ChannelPlay(DWORD handle, BOOL restart)
 {
-    BOOL result = pOrigBASS_ChannelPlay(handle, restart);
-    if (!result)
-        return result;
-
     EnterCriticalSection(&stateLock);
     auto it = channelInfoMap.find(handle);
+    DWORD active = it!=channelInfoMap.end() && pOrigBASS_ChannelIsActive ? pOrigBASS_ChannelIsActive(handle) : 0;
+    bool newPlayback = it!=channelInfoMap.end() && (restart || active==0);
+    muteBeforeStart(handle);
+    BOOL result = pOrigBASS_ChannelPlay(handle, restart);
+    if (!result) { restoreIfNative(handle); LeaveCriticalSection(&stateLock); return result; }
     if (it != channelInfoMap.end())
     {
-        it->second.paused = false;
-        publishChannelState((HCHANNEL)handle, CHANNEL_STATE_PLAYING);
+        // A confirmed restart is a new playback lifetime, unlike a stale PLAY
+        // message for an ended voice. Keep retirement protection in the backend.
+        if(newPlayback && it->second.routing.suppressNative()) {
+            publishChannelRemoved(handle);
+            it->second.generation=DWORD(InterlockedIncrement(&nextGeneration));
+            it->second.routing.pause();
+            publishChannelCreated(it->second.sample,handle,it->second.looping?BASS_SAMPLE_LOOP:0);
+            publishChannelUpdated(handle,CHANNEL_UPDATE_VOLUME|CHANNEL_UPDATE_PAN|CHANNEL_UPDATE_FREQUENCY|CHANNEL_UPDATE_LOOP,it->second);
+        }
+        startExternal(handle, it->second);
     }
     LeaveCriticalSection(&stateLock);
-
     return result;
 }
 
 BOOL WINAPI MyBASS_ChannelPause(DWORD handle)
 {
-    BOOL result = pOrigBASS_ChannelPause(handle);
-    if (!result)
-        return result;
-
     EnterCriticalSection(&stateLock);
+    BOOL result = pOrigBASS_ChannelPause(handle);
     auto it = channelInfoMap.find(handle);
-    if (it != channelInfoMap.end())
+    if (result && it != channelInfoMap.end())
     {
+        bool changed = !it->second.paused || it->second.routing.playing;
         it->second.paused = true;
-        publishChannelState((HCHANNEL)handle, CHANNEL_STATE_PAUSED);
+        it->second.routing.pause();
+        if (changed && it->second.routing.suppressNative())
+            publishChannelState((HCHANNEL)handle, CHANNEL_STATE_PAUSED);
     }
     LeaveCriticalSection(&stateLock);
-
     return result;
 }
 
@@ -656,10 +913,19 @@ BOOL WINAPI MyBASS_ChannelStop(DWORD handle)
     if (!result)
         return result;
 
-    publishChannelRemoved((HCHANNEL)handle);
-
     EnterCriticalSection(&stateLock);
-    channelInfoMap.erase(handle);
+    auto it = channelInfoMap.find(handle);
+    if (it != channelInfoMap.end())
+    {
+        publishChannelRemoved(handle);
+        it->second.routing = asio::RoutingState{};
+        it->second.eligible = false;
+        it->second.paused = true;
+        it->second.generation = DWORD(InterlockedIncrement(&nextGeneration));
+        it->second.incarnation = it->second.generation;
+        publishChannelCreated(it->second.sample, handle, it->second.looping ? BASS_SAMPLE_LOOP : 0);
+        publishChannelUpdated(handle, CHANNEL_UPDATE_VOLUME | CHANNEL_UPDATE_PAN | CHANNEL_UPDATE_FREQUENCY | CHANNEL_UPDATE_LOOP, it->second);
+    }
     LeaveCriticalSection(&stateLock);
 
     return result;
@@ -667,11 +933,16 @@ BOOL WINAPI MyBASS_ChannelStop(DWORD handle)
 
 BOOL WINAPI MyBASS_ChannelSetAttribute(DWORD handle, DWORD attrib, float value)
 {
-    BOOL result = pOrigBASS_ChannelSetAttribute(handle, attrib, value);
-    if (!result)
-        return result;
-
     EnterCriticalSection(&stateLock);
+    auto before = channelInfoMap.find(handle);
+    float nativeValue = attrib == BASS_ATTRIB_VOL && before != channelInfoMap.end() && before->second.routing.suppressNative() ? 0 : value;
+    BOOL result = pOrigBASS_ChannelSetAttribute(handle, attrib, nativeValue);
+    if (!result)
+    {
+        LeaveCriticalSection(&stateLock);
+        return result;
+    }
+
     auto it = channelInfoMap.find(handle);
     if (it != channelInfoMap.end())
     {
@@ -705,6 +976,8 @@ BOOL WINAPI MyBASS_ChannelSetAttribute(DWORD handle, DWORD attrib, float value)
 DWORD WINAPI MyBASS_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 {
     DWORD result = pOrigBASS_ChannelFlags(handle, flags, mask);
+    if (result == DWORD(-1))
+        return result;
 
     EnterCriticalSection(&stateLock);
     auto it = channelInfoMap.find(handle);
@@ -720,16 +993,23 @@ DWORD WINAPI MyBASS_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 
 BOOL WINAPI MyBASS_Mixer_StreamAddChannel(DWORD handle, DWORD channel, DWORD flags)
 {
+    traceCount(3);
+    if (!(flags & BASS_MIXER_CHAN_PAUSE))
+        muteBeforeStart(channel);
     BOOL result = pOrigBASS_Mixer_StreamAddChannel(handle, channel, flags);
     if (!result)
+    {
+        restoreIfNative(channel);
         return result;
+    }
 
     EnterCriticalSection(&stateLock);
     auto it = channelInfoMap.find(channel);
     if (it != channelInfoMap.end())
     {
         it->second.paused = (flags & BASS_MIXER_CHAN_PAUSE) != 0;
-        publishChannelState((HCHANNEL)channel, it->second.paused ? CHANNEL_STATE_PAUSED : CHANNEL_STATE_PLAYING);
+        if (!it->second.paused)
+            startExternal(channel, it->second);
     }
     LeaveCriticalSection(&stateLock);
 
@@ -738,7 +1018,15 @@ BOOL WINAPI MyBASS_Mixer_StreamAddChannel(DWORD handle, DWORD channel, DWORD fla
 
 DWORD WINAPI MyBASS_Mixer_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 {
+    if ((mask & BASS_MIXER_CHAN_PAUSE) && !(flags & BASS_MIXER_CHAN_PAUSE)) traceCount(10);
+    if ((mask & BASS_MIXER_CHAN_PAUSE) && !(flags & BASS_MIXER_CHAN_PAUSE))
+        muteBeforeStart(handle);
     DWORD result = pOrigBASS_Mixer_ChannelFlags(handle, flags, mask);
+    if (result == DWORD(-1))
+    {
+        restoreIfNative(handle);
+        return result;
+    }
 
     EnterCriticalSection(&stateLock);
     auto it = channelInfoMap.find(handle);
@@ -748,7 +1036,14 @@ DWORD WINAPI MyBASS_Mixer_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
         if (paused != it->second.paused)
         {
             it->second.paused = paused;
-            publishChannelState((HCHANNEL)handle, paused ? CHANNEL_STATE_PAUSED : CHANNEL_STATE_PLAYING);
+            if (!paused)
+                startExternal(handle, it->second);
+            else
+            {
+                it->second.routing.pause();
+                if (it->second.routing.suppressNative())
+                    publishChannelState(handle, CHANNEL_STATE_PAUSED);
+            }
         }
     }
     LeaveCriticalSection(&stateLock);
@@ -758,34 +1053,45 @@ DWORD WINAPI MyBASS_Mixer_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 
 BOOL WINAPI MyBASS_Mixer_ChannelRemove(DWORD handle)
 {
-    publishChannelRemoved((HCHANNEL)handle);
-
     EnterCriticalSection(&stateLock);
-    channelInfoMap.erase(handle);
+    BOOL result = pOrigBASS_Mixer_ChannelRemove(handle);
+    auto it = channelInfoMap.find(handle);
+    if (result && it != channelInfoMap.end())
+    {
+        bool changed = !it->second.paused || it->second.routing.playing;
+        it->second.paused = true;
+        it->second.routing.pause();
+        if (changed && it->second.routing.suppressNative())
+            publishChannelState(handle, CHANNEL_STATE_PAUSED);
+    }
     LeaveCriticalSection(&stateLock);
-
-    return pOrigBASS_Mixer_ChannelRemove(handle);
+    return result;
 }
 
 BOOL WINAPI MyBASS_StreamFree(DWORD handle)
 {
+    BOOL result = pOrigBASS_StreamFree(handle);
+    if (!result)
+        return result;
     publishChannelRemoved((HCHANNEL)handle);
 
     EnterCriticalSection(&stateLock);
     channelInfoMap.erase(handle);
     LeaveCriticalSection(&stateLock);
 
-    return pOrigBASS_StreamFree(handle);
+    return result;
 }
 
 extern "C" __declspec(dllexport) void initDLL()
 {
+    char traceSetting[2] = {};
+    traceEnabled = GetEnvironmentVariableA("ASIO_DIAGNOSTICS", traceSetting, sizeof(traceSetting)) == 1 && traceSetting[0] == '1';
     HMODULE bassModule = NULL;
     HMODULE bassMixModule = NULL;
 
     if (!waitForModule("bass.dll", &bassModule) || !waitForModule("bassmix.dll", &bassMixModule))
     {
-        MessageBoxA(NULL, "bass.dll or bassmix.dll was not loaded in time", "Info", MB_ICONEXCLAMATION);
+        logPrintf("[ASIO Hook] bass.dll or bassmix.dll was not loaded in time\n");
         return;
     }
 
@@ -793,19 +1099,23 @@ extern "C" __declspec(dllexport) void initDLL()
     InitializeCriticalSection(&stateLock);
     locksInitialised = true;
 
-    hMapFile = CreateFileMappingA(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, 0, sizeof(struct sharepool), "ShareMemoryForOsuASIO4Play");
+    char poolName[128];
+    snprintf(poolName, sizeof(poolName), "Local\\OsuAsioV2_%lu", GetCurrentProcessId());
+    hMapFile = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, poolName);
     lpBase = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 0);
     if (!(hMapFile && lpBase))
     {
-        MessageBoxA(NULL, "ShareMemory Failed", "Info", MB_ICONEXCLAMATION);
+        logPrintf("[ASIO Hook] ShareMemory Failed\n");
         return;
     }
 
     MyPool = (struct sharepool *)lpBase;
+    if (MyPool->magic != ASIO_PROTOCOL_MAGIC || MyPool->targetPid != GetCurrentProcessId())
+        return;
 
     if (MH_Initialize() != MH_OK)
     {
-        MessageBoxA(NULL, "MinHook initialize failed", "Info", MB_ICONEXCLAMATION);
+        logPrintf("[ASIO Hook] MinHook initialize failed\n");
         return;
     }
 
@@ -846,17 +1156,76 @@ extern "C" __declspec(dllexport) void initDLL()
         MH_CreateHook((LPVOID)pOrigBASS_Mixer_ChannelFlags, (LPVOID)MyBASS_Mixer_ChannelFlags, (PVOID *)&pOrigBASS_Mixer_ChannelFlags) != MH_OK ||
         MH_CreateHook((LPVOID)pOrigBASS_Mixer_ChannelRemove, (LPVOID)MyBASS_Mixer_ChannelRemove, (PVOID *)&pOrigBASS_Mixer_ChannelRemove) != MH_OK)
     {
-        MessageBoxA(NULL, "Hook creation failed", "Info", MB_ICONEXCLAMATION);
+        logPrintf("[ASIO Hook] Hook creation failed\n");
         return;
     }
 
-    MH_EnableHook(MH_ALL_HOOKS);
-    hooksInitialised = true;
+    if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK)
+        return;
+    HMODULE pinned;
+    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+        reinterpret_cast<LPCSTR>(&initDLL), &pinned);
 
     pollerRunning = true;
     HANDLE pollThread = CreateThread(0, 0, monitorChannels, 0, 0, 0);
     if (pollThread != NULL)
+    {
+        hooksInitialised = true;
         CloseHandle(pollThread);
+    }
+    else
+    {
+        pollerRunning = false;
+        hooksInitialised = false;
+        InterlockedExchange(&MyPool->backendReady, 0);
+        logPrintf("[ASIO Hook] monitor creation failed; keeping native audio\n");
+    }
+}
+
+static DWORD WINAPI hookStartup(LPVOID)
+{
+    // Initialise diagnostics outside loader lock, before any detours can run.
+    if(debugLogEnabled) {
+        wchar_t module[MAX_PATH];
+        DWORD length=GetModuleFileNameW(selfModule,module,MAX_PATH);
+        wchar_t* slash=length && length<MAX_PATH ? wcsrchr(module,L'\\') : nullptr;
+        if(slash) {
+            *(slash+1)=0;
+            std::wstring path=std::wstring(module)+L"asio_hook.log";
+            hookTextLog=new(std::nothrow) asio::AsyncTextLog;
+            if(hookTextLog) hookTextLog->startFile(path.c_str());
+        }
+    }
+    logPrintf("[ASIO Hook] DLL attached pid=%lu; diagnostic sink is asynchronous\n", (unsigned long)GetCurrentProcessId());
+    char name[80]; asioLiveMapName(name, GetCurrentProcessId());
+    HANDLE liveMap = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, name);
+    auto* live = liveMap ? static_cast<AsioLiveAttach*>(MapViewOfFile(liveMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(AsioLiveAttach))) : nullptr;
+    bool requested = live && live->magic == ASIO_LIVE_MAGIC && live->pid == GetCurrentProcessId();
+    if (requested) liveManagedReady = false;
+    initDLL();
+    if (requested) {
+        int result = E_FAIL;
+        if (hooksInitialised) {
+            InterlockedExchange(&live->status, 1);
+            wchar_t path[MAX_PATH];
+            DWORD length = GetModuleFileNameW(selfModule, path, MAX_PATH);
+            wchar_t* slash = length && length < MAX_PATH ? wcsrchr(path, L'\\') : nullptr;
+            if (slash) {
+                *slash = 0;
+                std::wstring root = path;
+                std::wstring assembly = root + L"\\managed\\Asio.ManagedBridge.dll";
+                result = asio::loadExistingManaged(assembly.c_str(), L"LiveEntry, Asio.ManagedBridge", L"Initialize",
+                    const_cast<wchar_t*>(root.c_str()), static_cast<int>((root.size() + 1) * sizeof(wchar_t)));
+            }
+        }
+        liveManagedReady = result == 0;
+        InterlockedExchange(&live->error, result);
+        InterlockedExchange(&live->status, result == 0 ? 2 : -1);
+        logPrintf("[ASIO Hook] live managed attach result=0x%08x\n", result);
+    }
+    if (live) UnmapViewOfFile(live);
+    if (liveMap) CloseHandle(liveMap);
+    return 0;
 }
 
 INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
@@ -872,13 +1241,17 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
         initDebugLogSetting();
         logPrintf("[ASIO Hook] DLL attached pid=%lu\n", (unsigned long)GetCurrentProcessId());
         DisableThreadLibraryCalls(hDLL);
-        HANDLE h1 = CreateThread(0, 0, (LPTHREAD_START_ROUTINE)initDLL, 0, 0, 0);
+        HANDLE h1 = CreateThread(0, 0, hookStartup, 0, 0, 0);
         if (h1 != NULL)
             CloseHandle(h1);
         break;
     }
 
     case DLL_PROCESS_DETACH:
+        // Successful hooks pin this DLL. At process termination other threads
+        // are gone; avoid waiting on locks they may have held under loader lock.
+        if (Reserved != NULL)
+            return TRUE;
         logPrintf("[ASIO Hook] DLL detaching pid=%lu\n", (unsigned long)GetCurrentProcessId());
         pollerRunning = false;
 

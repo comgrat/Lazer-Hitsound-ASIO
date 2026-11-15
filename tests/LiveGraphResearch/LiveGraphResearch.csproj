@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>LiveGraphResearch</RootNamespace>
+    <AssemblyName>LiveGraphResearch</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <CoreProject Condition="'$(CoreProject)' == ''">../../managed/Asio.ManagedBridge.csproj</CoreProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <ProjectReference Include="$(CoreProject)" />
+  </ItemGroup>
+</Project>

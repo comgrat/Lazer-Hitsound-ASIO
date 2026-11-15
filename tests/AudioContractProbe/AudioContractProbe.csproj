@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>AudioContractProbe</AssemblyName>
+    <RootNamespace>AudioContractProbe</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Compile the reviewed production class itself; do not duplicate it. -->
+    <Compile Include="..\..\managed\AudioContract.cs" Link="AudioContract.cs" />
+    <Compile Include="..\..\managed\Localization.cs" Link="Localization.cs" />
+    <EmbeddedResource Include="..\..\locales\en.lang" LogicalName="Asio.English.lang" Link="en.lang" />
+    <EmbeddedResource Include="..\..\managed\audio-contract.json" LogicalName="Asio.AudioContract.json" Link="audio-contract.json" />
+  </ItemGroup>
+</Project>

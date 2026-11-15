@@ -1,0 +1,34 @@
+[
+  {
+    "Assembly": "osu.Framework",
+    "Version": "2026.1019.0.0",
+    "Mvid": "a1880d90-fe91-4523-b34b-fc9d4fbed55f",
+    "Types": {
+      "osu.Framework.Audio.AdjustableAudioComponent": "298d521258770a92cc181168bebd7dca14e5c9325fd497c82bfe038f9f7db4ec",
+      "osu.Framework.Audio.AudioAdjustments": "d7f6bf9dc75526729cc1c89f93cf02113f35aa5aff1c92d6299d2a3e20b1723b",
+      "osu.Framework.Audio.AudioComponent": "dfcda7008cc82420d1c13b80fbc56a5f85fba5ac3abbc5472be175af3c56858b",
+      "osu.Framework.Audio.AudioManager": "0f3b8764f5bb50cbbe7a4b2e845279c1f1cec09a7e4497f430505e6b074e1872",
+      "osu.Framework.Audio.Mixing.AudioMixer": "4e88677b3ac16df518e8863e61ce55115d8418b0fa09e169578d1835ef777aaf",
+      "osu.Framework.Audio.Mixing.Bass.BassAudioMixer": "e2b3e084193a59ad34f45095f04f6a73c3d5a5d11a569ff466b725202497d842",
+      "osu.Framework.Audio.Sample.Sample": "2108fb31f33ffea5c19ed9ee3405448b01744b7f1b66c2a1bf8613ad541b1f2a",
+      "osu.Framework.Audio.Sample.SampleBass": "f5667e1b2837ab43a2f9e7ef99f6b611aaec4aaafba31bdc2553ba741e666a24",
+      "osu.Framework.Audio.Sample.SampleChannel": "53db516f5e984468684dbd73dfce0d311f9a32d68b38fadf0b8e1e18e1a6b2da",
+      "osu.Framework.Audio.Sample.SampleChannelBass": "35e9214b90d2278b50d19c9ac31c52f325d37e4ac66549ec33ee899ee39e5e81",
+      "osu.Framework.Bindables.AggregateBindable\u00601": "435ffbb90e7432c0d86a9e26dba161bc0266fac5c0d370bb65950f7a906ddbd9",
+      "osu.Framework.Bindables.Bindable\u00601": "be87426cf848718b7b080e8aa324195157f31393d369f15ffd2453d8a3397c34",
+      "osu.Framework.Graphics.Audio.DrawableAudioMixer": "29fa39d8cdb8859861b528d0c012acbaa1627dae9b49733266e9c1ec53b22380",
+      "osu.Framework.Graphics.Audio.DrawableAudioWrapper": "36bd9ce3cb017804417d0a2e155e82fbba090158291ce2904d61c270db9f0c8a",
+      "osu.Framework.Graphics.Audio.DrawableSample": "912c6fe08774f6f8dd38440b3653b569905e767735acbb5981385d9760ac749d"
+    }
+  },
+  {
+    "Assembly": "osu.Game",
+    "Version": "2026.1026.0.0",
+    "Mvid": "ec4eaaf3-06b5-4511-a115-394b72105df7",
+    "Types": {
+      "osu.Game.Rulesets.UI.DrawableRuleset": "f5fd55342f62b879ae6dd8da5ff151004e8defe9ab1f40e37d7e2a4d7ab4eef8",
+      "osu.Game.Skinning.PoolableSkinnableSample": "ebe06dcbb063e909dd8997e8c7a152c2a93dcbb5693705594cfd8bc16a1b0864",
+      "osu.Game.Skinning.SkinnableSound": "aabd92236df3d33e0a0aa61326d300f796491116b7409e7102ce76ba2b9c029c"
+    }
+  }
+]

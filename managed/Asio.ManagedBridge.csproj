@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Asio.ManagedBridge</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="StartupHook.cs" />
+    <Compile Include="AudioContract.cs" />
+    <Compile Include="LiveEntry.cs" />
+    <Compile Include="Localization.cs" />
+    <EmbeddedResource Include="..\locales\en.lang" LogicalName="Asio.English.lang" />
+    <EmbeddedResource Include="audio-contract.json" LogicalName="Asio.AudioContract.json" />
+    <PackageReference Include="Lib.Harmony" Version="2.4.2" />
+  </ItemGroup>
+</Project>

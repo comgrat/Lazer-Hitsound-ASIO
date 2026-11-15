@@ -1,117 +1,149 @@
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
+#include <cerrno>
+#include <climits>
+#include <cwchar>
 #include <windows.h>
-#include <winuser.h>
 #include "fmod/inc/fmod.h"
 #include "fmod/inc/fmod_errors.h"
-using namespace std;
-FMOD_SYSTEM *fmodSystem;
-int bufferSize = 128, driverId = 0, sampleRate = 48000, outputVolume = 100, debugLogEnabled = 0;
+#include "settings.h"
+#include "i18n.h"
+namespace ui=asio::i18n;
 
-int readValue(FILE *fp, int defaultValue){
-	int x=0,f=1;int raw=fgetc(fp); if(raw==EOF) return defaultValue; char ch=(char)raw;
-	while(ch<'0'||ch>'9'){if(ch=='-')f=-1; raw=fgetc(fp); if(raw==EOF) return defaultValue; ch=(char)raw;}
-	while(ch>='0'&&ch<='9'){x=x*10+ch-'0'; raw=fgetc(fp); if(raw==EOF) break; ch=(char)raw;}
-	return x*f;
+struct Settings
+{
+    int buffer = 16, driver = 0, rate = 48000, volume = 50, debug = 0;
+};
+
+static bool parseNumber(const char *text, int &value)
+{
+    char *end = nullptr;
+    errno = 0;
+    long number = strtol(text, &end, 10);
+    if (end == text || errno || number < INT_MIN || number > INT_MAX) return false;
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') ++end;
+    if (*end) return false;
+    value = int(number);
+    return true;
 }
 
-void init(bool forceWrite = false){
-	FILE *fp;
-	if(forceWrite || !(fp = fopen("config.ini", "r"))){
-		fp = fopen("config.ini", "w");
-		fprintf(fp, "[Config]\n");
-		fprintf(fp, "Buffer Size = %d\n", bufferSize);
-		fprintf(fp, "ASIO Driver ID = %d\n", driverId);
-		fprintf(fp, "Sample Rate = %d\n", sampleRate);
-		fprintf(fp, "Output Volume = %d\n", outputVolume);
-		fprintf(fp, "Debug Log = %d\n", debugLogEnabled);
-		fclose(fp);
-	}else{
-		bufferSize = readValue(fp, bufferSize);
-		driverId = readValue(fp, driverId);
-		sampleRate = readValue(fp, sampleRate);
-		outputVolume = readValue(fp, outputVolume);
-		debugLogEnabled = readValue(fp, debugLogEnabled);
-		if(outputVolume < 0) outputVolume = 0;
-		debugLogEnabled = debugLogEnabled ? 1 : 0;
-		fclose(fp);
-	}
+static Settings readSettings()
+{
+    Settings settings;
+    asio::Settings parsed;
+    std::string error;
+    std::wstring path=asio::executableSibling(L"config.ini");
+    if (asio::loadSettings(path, parsed, error)) {
+        settings.buffer=parsed.buffer; settings.driver=parsed.driver; settings.rate=parsed.rate;
+        settings.volume=parsed.volume; settings.debug=parsed.debug;
+    } else if (GetFileAttributesW(path.c_str())!=INVALID_FILE_ATTRIBUTES) {
+        fprintf(stderr,"%s\n",ui::text("config.invalid",{error}).c_str());
+    }
+    return settings;
 }
 
-int main(int argc, char* argv[]) {
-    printf("FMOD Studio Low Level API (C) Firelight Technologies Pty Ltd.\n");
-    printf("For custom key bindings, refer keycodes on site:\n");
-    printf("    https://docs.microsoft.com/en-us/windows/desktop/inputdev/virtual-key-codes\n");
+static void showSettings(const Settings &settings)
+{
+    printf("[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\n",
+           settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug);
+}
 
-    FMOD_RESULT initRet = FMOD_System_Create(&fmodSystem, FMOD_VERSION);
-    if (initRet != FMOD_OK) {
-        printf("Create FMOD System Failed: %s\n", FMOD_ErrorString((FMOD_RESULT)initRet));
-        return initRet;
+static bool ask(const char *prompt, int current, int minimum, int maximum, int &result)
+{
+    char line[256];
+    for (;;)
+    {
+        printf("%s [%d]: ", prompt, current);
+        fflush(stdout);
+        if (!fgets(line, sizeof(line), stdin)) return false;
+        if (line[0] == '\n' || line[0] == '\r') { result = current; }
+        else if (!parseNumber(line, result)) { puts(ui::text("config.integer").c_str()); continue; }
+        if (result >= minimum && result <= maximum) return true;
+        puts(ui::text("config.range",{std::to_string(minimum),std::to_string(maximum)}).c_str());
     }
-    
-    printf("Please input buffer size (exp. 128): ");
-	bufferSize = readValue(stdin, bufferSize);
+}
 
-    FMOD_System_SetDSPBufferSize(fmodSystem, bufferSize, 2);
-	FMOD_System_SetOutput(fmodSystem, FMOD_OUTPUTTYPE_ASIO);
-	int driverNums;
-	FMOD_System_GetNumDrivers(fmodSystem, &driverNums);
-	char name[256];
-	int systemRate;
-	int speakerChannels;
-	FMOD_SPEAKERMODE speakerMode;
+int main(int argc, char **argv)
+{
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+    ui::initialize();
+    int languageResult=ui::languageCommand(argc,argv);
+    if(languageResult>=0)return languageResult;
+    if(argc==1&&!ui::hasSavedLanguage()&&!ui::chooseLanguage())return 2;
+    struct WaitForConsole
+    {
+        bool interactive;
+        ~WaitForConsole() { if (interactive) { puts(ui::text("common.close").c_str()); getchar(); } }
+    } wait{argc == 1};
+    // Save next to this executable even when launched from another cwd.
+    wchar_t executable[MAX_PATH];
+    DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
+    if (!length || length >= MAX_PATH) return 1;
+    wchar_t *slash = wcsrchr(executable, L'\\');
+    if (!slash) return 1;
+    *slash = 0;
+    if (!SetCurrentDirectoryW(executable)) return 1;
+    Settings settings = readSettings();
+    if (argc == 2 && !strcmp(argv[1], "--show")) { showSettings(settings); return 0; }
+    bool listOnly = argc == 2 && !strcmp(argv[1], "--list");
+    if (argc != 1 && !listOnly) { puts(ui::text("config.usage").c_str()); return 2; }
 
-	for (int i = 0; i < driverNums; i++) {
-		FMOD_System_GetDriverInfo(fmodSystem, i, name, 255, 0, &systemRate, &speakerMode, &speakerChannels);
-		printf("DeviceID: %-3d DeviceName: %s  Rate: %d  Channels: %d\n", i, name, systemRate, speakerChannels);
-	}
-	printf("Please select the DeviceID: ");
-	driverId = readValue(stdin, driverId);
-	FMOD_System_SetDriver(fmodSystem, driverId);
-
-	unsigned bufLen;
-	int bufNum;
-	
-	FMOD_System_GetDriverInfo(fmodSystem, driverId, name, 255, 0, &systemRate, &speakerMode, &speakerChannels);
-	printf("Please input sample rate (input 0 for %dhz): ", systemRate);
-	int tmpSysRate = readValue(stdin, sampleRate);
-	sampleRate = (tmpSysRate == 0 ? systemRate : tmpSysRate);
-	printf("Please input output volume percent (exp. 100): ");
-	outputVolume = readValue(stdin, outputVolume);
-	if(outputVolume < 0) outputVolume = 0;
-	printf("Enable debug log? (0/1): ");
-	debugLogEnabled = readValue(stdin, debugLogEnabled);
-	debugLogEnabled = debugLogEnabled ? 1 : 0;
-
-	if (speakerChannels <= 0) speakerChannels = 2;
-	FMOD_System_SetSoftwareFormat(fmodSystem, sampleRate, speakerMode, speakerChannels);
-
-	initRet = FMOD_System_Init(fmodSystem, 32, FMOD_INIT_NORMAL, 0);
-	if (initRet != FMOD_OK) {
-		printf("FMOD System Initialize Failed: %s\n", FMOD_ErrorString((FMOD_RESULT)initRet));
-		system("pause");
-		return 0;
-	}
-	Sleep(1000);
-	FMOD_System_GetDriverInfo(fmodSystem, driverId, name, 255, 0, 0, &speakerMode, &speakerChannels);
-	FMOD_System_GetDSPBufferSize(fmodSystem, &bufLen, &bufNum);
-	printf("FMOD System Initialize Finished.\n");
-	printf("[FMOD] Device Name: %s\n", name);
-	printf("[FMOD] Device Sample Rate: %d\n", sampleRate);
-	printf("[FMOD] Device Speaker Mode: %d\n", (int)speakerMode);
-	printf("[FMOD] Device Channels: %d\n", speakerChannels);
-	printf("[FMOD] DSP buffer size: %d * %d\n", bufLen, bufNum);
-	printf("[FMOD] Latency: %.10lfms\n", bufLen * bufNum * 1000.0 / sampleRate);
-
-    if (initRet == FMOD_OK && fmodSystem != nullptr) {
-        FMOD_System_Release(fmodSystem);
-        printf("FMOD System released.\n");
+    FMOD_SYSTEM *system = nullptr;
+    FMOD_RESULT result = FMOD_System_Create(&system, FMOD_VERSION);
+    if (result != FMOD_OK) { puts(ui::text("config.create_failed",{FMOD_ErrorString(result)}).c_str()); return 1; }
+    struct Release { FMOD_SYSTEM *system; ~Release() { if (system) FMOD_System_Release(system); } } release{system};
+    result = FMOD_System_SetOutput(system, FMOD_OUTPUTTYPE_ASIO);
+    int count = 0;
+    if (result == FMOD_OK) result = FMOD_System_GetNumDrivers(system, &count);
+    if (result != FMOD_OK) { puts(ui::text("config.enumerate_failed",{FMOD_ErrorString(result)}).c_str()); return 1; }
+    puts(ui::text("config.devices").c_str());
+    for (int i = 0; i < count; ++i)
+    {
+        char name[256] = {};
+        int rate = 0, channels = 0;
+        if (FMOD_System_GetDriverInfo(system, i, name, sizeof(name), nullptr, &rate, nullptr, &channels) == FMOD_OK)
+            puts(ui::text("config.device_line",{std::to_string(i),name,std::to_string(rate),std::to_string(channels)}).c_str());
     }
-    
-    init(true);
-    
-    system("pause");
-
+    if (!count) { puts(ui::text("config.no_devices").c_str()); return 1; }
+    if (listOnly) return 0; // Enumeration never initialises/opens the device.
+    puts(ui::text("config.choose").c_str());
+    if (settings.driver < 0 || settings.driver >= count) settings.driver = 0;
+    if (!ask(ui::text("config.driver").c_str(), settings.driver, 0, count - 1, settings.driver) ||
+        !ask(ui::text("config.buffer").c_str(), settings.buffer, 1, 8192, settings.buffer) ||
+        !ask(ui::text("config.rate").c_str(), settings.rate, 0, 768000, settings.rate) ||
+        !ask(ui::text("config.volume").c_str(), settings.volume, 0, 100, settings.volume) ||
+        !ask(ui::text("config.debug").c_str(), settings.debug, 0, 1, settings.debug)) return 2;
+    puts(ui::text("config.checking").c_str());
+    if (!settings.rate)
+    {
+        result = FMOD_System_GetDriverInfo(system, settings.driver, nullptr, 0, nullptr, &settings.rate, nullptr, nullptr);
+        if (result != FMOD_OK || settings.rate < 8000) { puts(ui::text("config.default_rate_failed").c_str()); return 1; }
+    }
+    result = FMOD_System_SetDriver(system, settings.driver);
+    if (result == FMOD_OK) result = FMOD_System_SetDSPBufferSize(system, settings.buffer, 2);
+    if (result == FMOD_OK) result = FMOD_System_SetSoftwareFormat(system, settings.rate, FMOD_SPEAKERMODE_STEREO, 0);
+    if (result == FMOD_OK) result = FMOD_System_Init(system, 32, FMOD_INIT_NORMAL, nullptr);
+    if (result != FMOD_OK)
+    {
+        puts(ui::text("config.check_failed",{FMOD_ErrorString(result)}).c_str());
+        return 1;
+    }
+    FMOD_System_Release(system);
+    release.system = nullptr;
+    FILE *file = fopen("config.ini.tmp", "w");
+    if (!file) { puts(ui::text("config.write_failed").c_str()); return 1; }
+    int written = fprintf(file, "[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\n",
+                          settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug);
+    bool saved = fclose(file) == 0 && written > 0;
+    if (!saved || !MoveFileExW(L"config.ini.tmp", L"config.ini", MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+    { puts(ui::text("config.save_failed").c_str()); return 1; }
+    file = fopen(".asio-device-configured", "w");
+    if (!file) { puts(ui::text("config.marker_failed").c_str()); return 1; }
+    fputs("configured\n", file);
+    fclose(file);
+    puts(ui::text("config.saved").c_str());
+    showSettings(settings);
     return 0;
 }

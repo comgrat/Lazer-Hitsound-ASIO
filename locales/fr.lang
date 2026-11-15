@@ -1,0 +1,107 @@
+language.name=Français
+language.saved=Langue enregistrée : {0}. Redémarrez les fenêtres de l’outil déjà ouvertes pour appliquer le changement partout.
+language.save_failed=Impossible d’enregistrer la préférence de langue à côté de l’outil. Déplacez le dossier vers un emplacement accessible en écriture.
+language.invalid=Langue inconnue : {0}. Langues disponibles : zh-CN, zh-TW, en, fr, es.
+language.menu=Choose language / 选择语言 / 選擇語言 / Choisir la langue / Elegir idioma
+language.prompt=Saisissez 1-5 (Entrée = English) :
+language.selection_invalid=Saisissez un nombre compris entre 1 et 5.
+common.close=Appuyez sur Entrée pour fermer cette fenêtre.
+common.start_failed=Le démarrage ne s’est pas terminé. Conservez les informations d’erreur ci-dessus.
+config.invalid=La configuration est incomplète ou non valide. Les valeurs par défaut sont affichées ; le fichier d’origine n’a pas été écrasé : {0}
+config.integer=Saisissez un entier ou appuyez sur Entrée pour conserver la valeur actuelle.
+config.range=Saisissez une valeur comprise entre {0} et {1}.
+config.usage=Utilisation : config.exe [--show | --list | --language [code] | --current-language | --list-languages]
+config.create_failed=Impossible de créer FMOD : {0}
+config.enumerate_failed=Impossible d’énumérer les périphériques ASIO : {0}
+config.devices=Périphériques ASIO disponibles :
+config.device_line=  DeviceID {0} : {1} ({2} Hz, {3} sorties)
+config.no_devices=Aucun pilote ASIO n’a été trouvé. Installez le pilote fourni par le fabricant de l’interface audio, puis réessayez.
+config.choose=Choisissez votre interface audio. Entrée conserve la valeur entre crochets. La sortie est en stéréo L/R.
+config.driver=Numéro du périphérique ASIO
+config.buffer=Taille du tampon en échantillons
+config.rate=Fréquence d’échantillonnage en Hz (0 = valeur par défaut du pilote)
+config.volume=Volume ASIO indépendant en pourcentage
+config.debug=Journalisation détaillée : 0 = désactivée, 1 = activée
+config.checking=Vérification du périphérique sélectionné sans jouer de son de test. Fermez d’abord les autres programmes utilisant ASIO.
+config.default_rate_failed=Impossible de lire la fréquence d’échantillonnage par défaut du pilote. La configuration n’a pas été enregistrée.
+config.check_failed=La vérification du périphérique a échoué. La nouvelle configuration n’a pas été enregistrée : {0}
+config.write_failed=Impossible d’écrire config.ini dans le dossier de l’outil. Déplacez le dossier vers un emplacement accessible en écriture.
+config.save_failed=Impossible d’enregistrer config.ini. La configuration d’origine a été conservée.
+config.marker_failed=La configuration a été enregistrée, mais le marqueur de périphérique de première utilisation n’a pas pu être écrit.
+config.saved=Configuration enregistrée dans config.ini, à côté de config.exe. Le périphérique va maintenant être libéré.
+launcher.intro=Outil ASIO autonome : détecte et se rattache à un client lancé normalement. Gardez cette fenêtre ouverte et lancez votre jeu comme d’habitude. Utilisez config.exe/config.ini dans ce dossier.
+launcher.failed=Impossible de démarrer le point d’entrée du rattachement. Erreur Windows : {0}. Appuyez sur Entrée pour fermer.
+launcher.usage=Utilisation : osu!asio_sound.exe [--language [code] | --current-language | --list-languages | --help]
+watcher.process_prompt=Nom de l’exécutable du jeu (par défaut : osu!.exe ; saisissez un nom de fichier, pas un répertoire de client)
+watcher.invalid_process=Nom de fichier de processus non valide.
+watcher.already_running=L’outil ASIO autonome est déjà en cours d’exécution. Utilisez la fenêtre existante.
+watcher.waiting=L’outil ASIO autonome a démarré. En attente de {0}.exe. Lancez votre jeu comme d’habitude.
+watcher.behavior=L’outil ne démarre pas, ne copie pas et ne modifie pas le client de jeu. Utilisez config.exe pour choisir un périphérique ASIO.
+watcher.config=Configuration : {0}. Output Volume est mis à jour environ 0,5 seconde après l’enregistrement. Les changements de pilote, de tampon ou de fréquence d’échantillonnage nécessitent de redémarrer le jeu.
+watcher.trace=Le suivi de lecture limité est activé pour cette session.
+watcher.first_use=Première utilisation : choisissez votre propre pilote ASIO et enregistrez la configuration.
+watcher.config_failed=La configuration du périphérique n’a pas été terminée.
+watcher.found=Client trouvé : PID={0} ; {1}
+watcher.attach_failed=Le rattachement a échoué ou s’est arrêté : exit={0}. La sortie native est conservée ; redémarrez le jeu avant de réessayer. Journal : {1}
+watcher.released=Le jeu s’est fermé. Le périphérique ASIO a été libéré.
+watcher.continue=En attente du prochain processus client. Fermez cette fenêtre pour arrêter l’outil.
+watcher.timeout=Le délai d’attente d’un client compatible a expiré.
+backend.config_rejected=[ASIO config] La configuration actuelle est illisible ou incomplète. Conservation des dernières valeurs valides : {0}
+backend.volume_applied=[ASIO config] Output Volume={0}% appliqué ; configuration : {1}
+backend.config_failed=[ASIO config] Impossible de lire une configuration complète à côté de l’exécutable : {0} ; path={1}. Exécutez d’abord config.exe dans le même dossier.
+backend.config_loaded=[ASIO config] PID={0} ; config={1} ; Output Volume={2}%. Enregistrez pour mettre à jour le volume à chaud ; redémarrez le jeu pour les changements de périphérique, de tampon ou de fréquence d’échantillonnage.
+backend.fault=[ASIO attach] Défaillance de la file d’attente ou de l’adaptateur. ASIO s’est arrêté et la sortie native est rétablie. Redémarrez le jeu avant de réessayer.
+backend.internal=Ceci est le backend ASIO interne. Exécutez osu!asio_sound.exe et attendez le client ; n’exécutez pas ce fichier directement.
+backend.default_rate_failed=[ASIO config] Impossible de lire la fréquence d’échantillonnage par défaut du pilote.
+backend.bus_failed=[ASIO config] Impossible de définir le volume indépendant du bus de sortie : {0}
+backend.access_failed=[ASIO attach] Impossible d’accéder à PID={0}, erreur Windows={1}. Exécutez l’outil et le jeu avec le même niveau d’autorisation.
+backend.session_failed=[ASIO attach] Impossible de créer cette session de rattachement. Ne démarrez pas un autre backend pour le même processus.
+backend.adapter_failed=[ASIO attach] L’adaptateur managé n’est pas prêt, error={0}. La sortie native du jeu est conservée.
+backend.ready=[ASIO attach] PID={0} est prêt : hook natif et adaptateur de volume d’exécution installés.
+backend.logger_failed=[ASIO log] Impossible d’initialiser la file d’attente des diagnostics en arrière-plan.
+backend.disabled=[FMOD] Backend ASIO désactivé ; repli natif : {0}
+backend.inject_failed=L’injection de la DLL a échoué.
+backend.create_failed=Impossible de créer le système FMOD : {0}
+backend.asio_failed=La configuration ASIO a échoué : {0}
+backend.stereo_failed=La configuration de la sortie stéréo a échoué : {0}
+backend.init_failed=L’initialisation de FMOD a échoué : {0}
+backend.format_failed=Impossible d’interroger le format de sortie logiciel : {0}
+backend.lease_failed=Impossible d’initialiser le bail de propriété ASIO : {0}
+backend.info=[FMOD] Périphérique : {0} ; driver={1} ; volume ASIO={2}% ; output={3} Hz, stéréo L/R ; tampon logiciel={4} x {5}.
+backend.buffer_note=[FMOD] Durée du tampon logiciel : {0} ms. Il ne s’agit pas d’une latence de bout en bout mesurée.
+managed.start_failed=Le démarrage de l’adaptateur a échoué ; la sortie native est conservée : {0}
+managed.early_only=Le chargement anticipé nécessite DOTNET_STARTUP_HOOKS avant le chargement des assemblys du jeu ou du framework.
+managed.ambiguous=Plusieurs ensembles d’assemblys du jeu ou du framework ont été trouvés. La cible du rattachement est ambiguë.
+managed.timeout=Le délai d’attente des assemblys du jeu ou du framework a expiré. Redémarrez le jeu et réessayez.
+managed.failed=L’installation de l’adaptateur a échoué ; la sortie native est conservée.
+managed.ready=Les deux adaptateurs audio sont installés. Le rattachement à chaud est prêt.
+managed.installed=Installation terminée : {0} {1} ; le contrat d’implémentation audio correspond.
+managed.native=La sortie native est conservée : {0} {1}
+managed.graph=Graphe d’agrégation des volumes non valide.
+managed.il=La disposition IL de la porte de volume zéro Play ne correspond pas.
+managed.attaching=Adaptation du client en cours d’exécution, PID={0}.
+managed.attach_error=Le rattachement a échoué ; la sortie native est conservée : {0} {1}
+contract.member=Membre audio non pris en charge : {0}
+contract.operand=Opérande IL audio non pris en charge : {0}
+contract.type=Le type audio requis est manquant : {0}
+contract.missing=Le contrat d’implémentation audio vérifié est manquant.
+contract.mismatch=Incohérence du contrat d’implémentation audio : {0} {1}. Types modifiés : {2}. Ce client nécessite une nouvelle vérification.
+device.pcm=Autotest PCM : {0}, peak={1}, duration=0.35 s. Aucun périphérique matériel n’a été ouvert et aucun son n’a été joué.
+device.pass=réussi
+device.fail=échoué
+device.silent=Autotest de matrice stéréo FMOD NOSOUND : {0}. Aucune sortie matérielle n’a été ouverte.
+device.enumerate_failed=Échec de l’énumération des périphériques : {0}
+device.list=Périphériques ASIO (avec le même FMOD que le backend du jeu) :
+device.entry=DeviceID {0} : {1} ; le pilote indique {2} Hz / {3} canaux de sortie
+device.none=Aucun périphérique ASIO n’est disponible.
+device.intro=Cet outil ne démarre pas le jeu, ne s’y injecte pas et ne modifie pas les paramètres audio. Baissez d’abord le volume de votre casque ou de vos haut-parleurs.
+device.prompt=Saisissez un numéro de périphérique :
+device.invalid=Numéro de périphérique non valide.
+device.confirm=Deux tonalités discrètes vont être jouées : à gauche, puis à droite, sur Playback 1/2. Appuyez sur Entrée pour commencer, ou fermez la fenêtre pour annuler.
+device.open_failed=Impossible d’ouvrir le périphérique : {0}
+device.channel=Canal ASIO physique {0} : {1} ; FMOD speaker={2}
+device.unknown=inconnu
+device.left=Canal gauche (Playback 1)...
+device.right=Canal droit (Playback 2)...
+device.play_failed=L’appel de lecture a échoué : {0}
+device.done=Les appels de lecture sont terminés et le périphérique a été libéré. Vérifiez vous-même l’audibilité ; cet outil ne peut pas détecter si le son a atteint votre casque.

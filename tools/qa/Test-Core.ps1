@@ -1,0 +1,35 @@
+#requires -Version 5.1
+[CmdletBinding()]
+param()
+$ErrorActionPreference='Stop'
+$repo=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+if(!(Get-Command cl.exe -ErrorAction SilentlyContinue)){throw 'Use an x64 Visual Studio developer shell.'}
+$output=Join-Path $repo 'tests\bin'
+New-Item -ItemType Directory -Path $output -Force|Out-Null
+$fixtureDirectory=Join-Path $output ('T_OUTPUT_REGRESSION_RUN_'+[guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $fixtureDirectory|Out-Null
+$cases=@(
+ @{name='routing';source='test_routing.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='audio-lease';source='AudioLeaseMock.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='native-hook';source='NativeHookMock.cpp';fmod=$false;hook=$true;arguments=@()},
+ @{name='native-restart';source='NativeRestartProbe.cpp';fmod=$false;hook=$true;arguments=@()},
+ @{name='mixer-abi';source='MixerAbiRegression.cpp';fmod=$false;hook=$true;arguments=@()},
+ @{name='player-output';source='PlayerOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
+ @{name='output-regression';source='OutputRegression.cpp';fmod=$true;hook=$false;arguments=@('--artifacts',$fixtureDirectory)},
+ @{name='digital-output';source='DigitalOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()}
+)
+$failed=@()
+Copy-Item -LiteralPath (Join-Path $repo 'fmod.dll') -Destination (Join-Path $output 'fmod.dll') -Force
+foreach($case in $cases){
+    $exe=Join-Path $output ($case.name+'.exe')
+    $object=Join-Path $output ($case.name+'.obj')
+    $arguments=@('/nologo','/utf-8','/std:c++17','/EHsc','/O2','/MT',('/I'+$repo),('/I'+(Join-Path $repo 'tests')),(Join-Path "$repo\tests" $case.source),('/Fo'+$object),('/Fe'+$exe),'/link','/LTCG','User32.lib','Advapi32.lib')
+    if($case.fmod){$arguments+=@((Join-Path $repo 'lib\fmod_vc.lib'))}
+    if($case.hook){$arguments+=(Join-Path $repo 'lib\libMinHook.x64.lib')}
+    & cl.exe @arguments
+    if($LASTEXITCODE){$failed+=$case.name;continue}
+    & $exe @($case.arguments)
+    if($LASTEXITCODE){$failed+=$case.name}
+}
+if($failed.Count){throw ('Failed regressions: '+($failed -join ', '))}
+Write-Output ('PASS '+$cases.Count+' core regression programs; hardware output and game startup were not used.')

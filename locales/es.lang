@@ -1,0 +1,107 @@
+language.name=Español
+language.saved=Idioma guardado: {0}. Reinicia las ventanas de la herramienta que estén abiertas para aplicarlo en todas.
+language.save_failed=No se pudo guardar la preferencia de idioma junto a la herramienta. Mueve la carpeta a una ubicación con permisos de escritura.
+language.invalid=Idioma desconocido: {0}. Disponibles: zh-CN, zh-TW, en, fr, es.
+language.menu=Choose language / 选择语言 / 選擇語言 / Choisir la langue / Elegir idioma
+language.prompt=Introduce 1-5 (Intro = English):
+language.selection_invalid=Introduce un número del 1 al 5.
+common.close=Pulsa Intro para cerrar esta ventana.
+common.start_failed=El inicio no se completó. Conserva la información del error que aparece arriba.
+config.invalid=La configuración está incompleta o no es válida. Se muestran los valores predeterminados; el archivo original no se sobrescribió: {0}
+config.integer=Introduce un número entero o pulsa Intro para mantener el valor actual.
+config.range=Introduce un valor entre {0} y {1}.
+config.usage=Uso: config.exe [--show | --list | --language [code] | --current-language | --list-languages]
+config.create_failed=No se pudo crear FMOD: {0}
+config.enumerate_failed=No se pudieron enumerar los dispositivos ASIO: {0}
+config.devices=Dispositivos ASIO disponibles:
+config.device_line=  DeviceID {0}: {1} ({2} Hz, {3} salidas)
+config.no_devices=No se encontró ningún controlador ASIO. Instala el controlador del fabricante de la interfaz de audio y vuelve a intentarlo.
+config.choose=Elige tu interfaz de audio. Intro mantiene el valor entre corchetes. La salida es estéreo L/R.
+config.driver=Número de dispositivo ASIO
+config.buffer=Tamaño del búfer en muestras
+config.rate=Frecuencia de muestreo en Hz (0 = valor predeterminado del controlador)
+config.volume=Volumen ASIO independiente en porcentaje
+config.debug=Registro detallado: 0 = desactivado, 1 = activado
+config.checking=Comprobando el dispositivo seleccionado sin reproducir un sonido de prueba. Cierra primero los demás programas que usen ASIO.
+config.default_rate_failed=No se pudo leer la frecuencia de muestreo predeterminada del controlador. La configuración no se guardó.
+config.check_failed=La comprobación del dispositivo falló. La nueva configuración no se guardó: {0}
+config.write_failed=No se puede escribir config.ini en la carpeta de la herramienta. Mueve la carpeta a una ubicación con permisos de escritura.
+config.save_failed=No se pudo guardar config.ini. Se conservó la configuración original.
+config.marker_failed=La configuración se guardó, pero no se pudo escribir el marcador de dispositivo de primer uso.
+config.saved=Configuración guardada en config.ini, junto a config.exe. El dispositivo se liberará ahora.
+launcher.intro=Herramienta ASIO independiente: detecta y se acopla a un cliente iniciado normalmente. Mantén esta ventana abierta e inicia el juego como de costumbre. Usa config.exe/config.ini de esta carpeta.
+launcher.failed=No se pudo iniciar el punto de entrada del acoplamiento. Error de Windows: {0}. Pulsa Intro para cerrar.
+launcher.usage=Uso: osu!asio_sound.exe [--language [code] | --current-language | --list-languages | --help]
+watcher.process_prompt=Nombre del ejecutable del juego (predeterminado: osu!.exe; introduce un nombre de archivo, no un directorio de cliente)
+watcher.invalid_process=El nombre de archivo del proceso no es válido.
+watcher.already_running=La herramienta ASIO independiente ya se está ejecutando. Usa la ventana existente.
+watcher.waiting=La herramienta ASIO independiente se inició. Esperando {0}.exe. Inicia el juego como de costumbre.
+watcher.behavior=La herramienta no inicia, copia ni modifica el cliente del juego. Usa config.exe para elegir un dispositivo ASIO.
+watcher.config=Configuración: {0}. Output Volume se actualiza aproximadamente 0,5 segundos después de guardar. Los cambios en el controlador, el búfer o la frecuencia de muestreo requieren reiniciar el juego.
+watcher.trace=El seguimiento de reproducción acotado está activado para esta sesión.
+watcher.first_use=Primer uso: elige tu propio controlador ASIO y guarda la configuración.
+watcher.config_failed=La configuración del dispositivo no se completó.
+watcher.found=Cliente encontrado: PID={0}; {1}
+watcher.attach_failed=El acoplamiento falló o se detuvo: exit={0}. Se conserva la salida nativa; reinicia el juego antes de volver a intentarlo. Registro: {1}
+watcher.released=El juego se cerró. El dispositivo ASIO se liberó.
+watcher.continue=Esperando el siguiente proceso de cliente. Cierra esta ventana para detener la herramienta.
+watcher.timeout=Se agotó el tiempo de espera de un cliente compatible.
+backend.config_rejected=[ASIO config] La configuración actual no se puede leer o está incompleta. Se mantienen los últimos valores válidos: {0}
+backend.volume_applied=[ASIO config] Output Volume={0}% aplicado; configuración: {1}
+backend.config_failed=[ASIO config] No se puede leer una configuración completa junto al ejecutable: {0}; path={1}. Ejecuta primero config.exe en la misma carpeta.
+backend.config_loaded=[ASIO config] PID={0}; config={1}; Output Volume={2}%. Guarda para actualizar el volumen en vivo; reinicia el juego para cambios en el dispositivo, el búfer o la frecuencia de muestreo.
+backend.fault=[ASIO attach] Fallo de la cola o del adaptador. ASIO se detuvo y se restauró la salida nativa. Reinicia el juego antes de volver a intentarlo.
+backend.internal=Este es el backend interno de ASIO. Ejecuta osu!asio_sound.exe y espera al cliente; no ejecutes este archivo directamente.
+backend.default_rate_failed=[ASIO config] No se pudo leer la frecuencia de muestreo predeterminada del controlador.
+backend.bus_failed=[ASIO config] No se pudo establecer el volumen independiente del bus de salida: {0}
+backend.access_failed=[ASIO attach] No se puede acceder a PID={0}, error de Windows={1}. Ejecuta la herramienta y el juego con el mismo nivel de permisos.
+backend.session_failed=[ASIO attach] No se puede crear esta sesión de acoplamiento. No inicies otro backend para el mismo proceso.
+backend.adapter_failed=[ASIO attach] El adaptador administrado no está listo, error={0}. Se conserva la salida nativa del juego.
+backend.ready=[ASIO attach] PID={0} está listo: hook nativo y adaptador de volumen en tiempo de ejecución instalados.
+backend.logger_failed=[ASIO log] No se pudo inicializar la cola de diagnóstico en segundo plano.
+backend.disabled=[FMOD] Backend ASIO desactivado; respaldo nativo: {0}
+backend.inject_failed=Falló la inyección de DLL.
+backend.create_failed=No se pudo crear el sistema FMOD: {0}
+backend.asio_failed=La configuración de ASIO falló: {0}
+backend.stereo_failed=La configuración de la salida estéreo falló: {0}
+backend.init_failed=La inicialización de FMOD falló: {0}
+backend.format_failed=No se pudo consultar el formato de salida del software: {0}
+backend.lease_failed=No se pudo inicializar la concesión de propiedad de ASIO: {0}
+backend.info=[FMOD] Dispositivo: {0}; driver={1}; volumen ASIO={2}%; output={3} Hz, estéreo L/R; búfer de software={4} x {5}.
+backend.buffer_note=[FMOD] Duración del búfer de software: {0} ms. No es una latencia de extremo a extremo medida.
+managed.start_failed=El inicio del adaptador falló; se conserva la salida nativa: {0}
+managed.early_only=La carga temprana requiere DOTNET_STARTUP_HOOKS antes de que se carguen los ensamblados del juego o del framework.
+managed.ambiguous=Se encontraron varios conjuntos de ensamblados del juego o del framework. El destino del acoplamiento es ambiguo.
+managed.timeout=Se agotó el tiempo de espera para los ensamblados del juego o del framework. Reinicia el juego y vuelve a intentarlo.
+managed.failed=La instalación del adaptador falló; se conserva la salida nativa.
+managed.ready=Los dos adaptadores de audio están instalados. El acoplamiento en vivo está listo.
+managed.installed=Instalación completada: {0} {1}; el contrato de implementación de audio coincide.
+managed.native=Se conserva la salida nativa: {0} {1}
+managed.graph=El grafo de agregación de volumen no es válido.
+managed.il=La estructura IL de la puerta de volumen cero de Play no coincide.
+managed.attaching=Adaptando el cliente en ejecución, PID={0}.
+managed.attach_error=El acoplamiento falló; se conserva la salida nativa: {0} {1}
+contract.member=Miembro de audio no compatible: {0}
+contract.operand=Operando IL de audio no compatible: {0}
+contract.type=Falta el tipo de audio requerido: {0}
+contract.missing=Falta el contrato de implementación de audio revisado.
+contract.mismatch=El contrato de implementación de audio no coincide: {0} {1}. Tipos modificados: {2}. Este cliente requiere una nueva revisión.
+device.pcm=Autoprueba PCM: {0}, peak={1}, duration=0.35 s. No se abrió ningún dispositivo de hardware ni se reprodujo sonido.
+device.pass=superada
+device.fail=fallida
+device.silent=Autoprueba de matriz estéreo FMOD NOSOUND: {0}. No se abrió ninguna salida de hardware.
+device.enumerate_failed=La enumeración de dispositivos falló: {0}
+device.list=Dispositivos ASIO (se usa el mismo FMOD que el backend del juego):
+device.entry=DeviceID {0}: {1}; el controlador informa {2} Hz / {3} canales de salida
+device.none=No hay ningún dispositivo ASIO disponible.
+device.intro=Esta herramienta no inicia el juego, no se inyecta en él ni cambia los ajustes de audio. Baja primero el volumen de los auriculares o los altavoces.
+device.prompt=Introduce un número de dispositivo:
+device.invalid=Número de dispositivo no válido.
+device.confirm=Se reproducirán dos tonos suaves: primero el izquierdo y luego el derecho, en Playback 1/2. Pulsa Intro para comenzar o cierra la ventana para cancelar.
+device.open_failed=No se pudo abrir el dispositivo: {0}
+device.channel=Canal ASIO físico {0}: {1}; FMOD speaker={2}
+device.unknown=desconocido
+device.left=Canal izquierdo (Playback 1)...
+device.right=Canal derecho (Playback 2)...
+device.play_failed=La llamada de reproducción falló: {0}
+device.done=Las llamadas de reproducción finalizaron y el dispositivo se liberó. Comprueba por tu cuenta si se oye; esta herramienta no puede detectar si el sonido llegó a tus auriculares.

@@ -1,0 +1,22 @@
+# Build outputs
+release/
+artifacts/
+*.obj
+*.exp
+*.pdb
+**/bin/
+**/obj/
+.vs/
+
+# Local runtime settings and diagnostics
+logs/
+asio_hook.log
+.asio-device-configured
+language.ini
+language.ini.tmp
+config.ini.tmp
+playback-trace.enabled
+
+# Local test results; publish only the summarized verification record.
+tests/Distribution/
+reports/

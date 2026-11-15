@@ -1,0 +1,107 @@
+language.name=繁體中文
+language.saved=語言已儲存：{0}。請重新開啟工具視窗，以全面套用變更。
+language.save_failed=無法將語言偏好儲存在工具所在資料夾。請將資料夾移至可寫入的位置。
+language.invalid=未知的語言：{0}。可用語言：zh-CN、zh-TW、en、fr、es。
+language.menu=Choose language / 选择语言 / 選擇語言 / Choisir la langue / Elegir idioma
+language.prompt=請輸入 1-5（Enter = English）：
+language.selection_invalid=請輸入 1 到 5 之間的數字。
+common.close=按 Enter 關閉此視窗。
+common.start_failed=啟動未完成。請保留上方的錯誤資訊。
+config.invalid=設定不完整或無效。目前顯示預設值；原始檔案未被覆寫：{0}
+config.integer=請輸入整數，或按 Enter 保留目前值。
+config.range=請輸入介於 {0} 與 {1} 之間的值。
+config.usage=用法：config.exe [--show | --list | --language [code] | --current-language | --list-languages]
+config.create_failed=無法建立 FMOD：{0}
+config.enumerate_failed=無法列舉 ASIO 裝置：{0}
+config.devices=可用的 ASIO 裝置：
+config.device_line=  DeviceID {0}: {1}（{2} Hz，{3} 個輸出）
+config.no_devices=找不到 ASIO 驅動程式。請安裝音訊介面製造商提供的驅動程式，然後再試一次。
+config.choose=選擇您的音訊介面。按 Enter 會保留括號中的值。輸出為立體聲 L/R。
+config.driver=ASIO 裝置編號
+config.buffer=緩衝區大小（以取樣點計）
+config.rate=取樣率（Hz，0 = 驅動程式預設）
+config.volume=獨立的 ASIO 音量（百分比）
+config.debug=詳細記錄：0 = 關閉，1 = 開啟
+config.checking=正在檢查所選裝置，不會播放測試音。請先關閉其他使用 ASIO 的程式。
+config.default_rate_failed=無法讀取驅動程式的預設取樣率。設定未儲存。
+config.check_failed=裝置檢查失敗。新的設定未儲存：{0}
+config.write_failed=無法在工具資料夾中寫入 config.ini。請將資料夾移至可寫入的位置。
+config.save_failed=無法儲存 config.ini。原始設定已保留。
+config.marker_failed=設定已儲存，但無法寫入首次使用裝置標記。
+config.saved=設定已儲存至 config.exe 旁的 config.ini。現在會釋放裝置。
+launcher.intro=獨立版 ASIO 工具：會偵測並附加到正常啟動的用戶端。請保持此視窗開啟，並照常啟動遊戲。使用此資料夾中的 config.exe/config.ini。
+launcher.failed=無法啟動附加進入點。Windows 錯誤：{0}。按 Enter 關閉。
+launcher.usage=用法：osu!asio_sound.exe [--language [code] | --current-language | --list-languages | --help]
+watcher.process_prompt=遊戲執行檔名稱（預設：osu!.exe；請輸入檔案名稱，而非用戶端目錄）
+watcher.invalid_process=處理程序檔名無效。
+watcher.already_running=獨立版 ASIO 工具已在執行中。請使用現有的視窗。
+watcher.waiting=獨立版 ASIO 工具已啟動。正在等待 {0}.exe。請照常啟動遊戲。
+watcher.behavior=此工具不會啟動、複製或修改遊戲用戶端。請使用 config.exe 選擇 ASIO 裝置。
+watcher.config=設定：{0}。儲存後約 0.5 秒會更新 Output Volume。驅動程式／緩衝區／取樣率的變更需要重新啟動遊戲。
+watcher.trace=本工作階段已啟用有上限的播放追蹤。
+watcher.first_use=首次使用：請選擇您自己的 ASIO 驅動程式並儲存設定。
+watcher.config_failed=裝置設定未完成。
+watcher.found=找到用戶端：PID={0}；{1}
+watcher.attach_failed=附加失敗或已停止：exit={0}。已保留原生輸出；重新嘗試前請先重新啟動遊戲。記錄：{1}
+watcher.released=遊戲已結束。ASIO 裝置已釋放。
+watcher.continue=正在等待下一個用戶端處理程序。關閉此視窗即可停止工具。
+watcher.timeout=等待相容用戶端時逾時。
+backend.config_rejected=[ASIO config] 目前的設定無法讀取或不完整。保留上一組有效值：{0}
+backend.volume_applied=[ASIO config] 已套用 Output Volume={0}%；設定：{1}
+backend.config_failed=[ASIO config] 無法讀取執行檔旁的完整設定：{0}；path={1}。請先在同一資料夾中執行 config.exe。
+backend.config_loaded=[ASIO config] PID={0}；config={1}；Output Volume={2}%。儲存後可即時更新音量；裝置／緩衝區／取樣率的變更則需重新啟動遊戲。
+backend.fault=[ASIO attach] 佇列或配接器失敗。ASIO 已停止，原生輸出已還原。重新嘗試前請先重新啟動遊戲。
+backend.internal=這是內部的 ASIO 後端。請執行 osu!asio_sound.exe 並等待用戶端；請勿直接執行此檔案。
+backend.default_rate_failed=[ASIO config] 無法讀取驅動程式的預設取樣率。
+backend.bus_failed=[ASIO config] 無法設定獨立輸出匯流排的音量：{0}
+backend.access_failed=[ASIO attach] 無法存取 PID={0}，Windows 錯誤={1}。請以相同權限等級執行工具與遊戲。
+backend.session_failed=[ASIO attach] 無法建立此附加工作階段。請勿為同一個處理程序啟動另一個後端。
+backend.adapter_failed=[ASIO attach] 受控配接器尚未就緒，error={0}。已保留遊戲的原生輸出。
+backend.ready=[ASIO attach] PID={0} 已就緒：原生鉤子與執行階段音量配接器均已安裝。
+backend.logger_failed=[ASIO log] 無法初始化背景診斷佇列。
+backend.disabled=[FMOD] ASIO 後端已停用；原生備援：{0}
+backend.inject_failed=DLL 注入失敗。
+backend.create_failed=無法建立 FMOD 系統：{0}
+backend.asio_failed=ASIO 設定失敗：{0}
+backend.stereo_failed=立體聲輸出設定失敗：{0}
+backend.init_failed=FMOD 初始化失敗：{0}
+backend.format_failed=無法查詢軟體輸出格式：{0}
+backend.lease_failed=無法初始化 ASIO 所有權租約：{0}
+backend.info=[FMOD] 裝置：{0}；driver={1}；ASIO 音量={2}%；output={3} Hz，立體聲 L/R；軟體緩衝區={4} x {5}。
+backend.buffer_note=[FMOD] 軟體緩衝區時長：{0} ms。這不是實測的端對端延遲。
+managed.start_failed=配接器啟動失敗；已保留原生輸出：{0}
+managed.early_only=早期載入需要在遊戲／架構組件載入前設定 DOTNET_STARTUP_HOOKS。
+managed.ambiguous=找到多組遊戲／架構組件。附加目標不明確。
+managed.timeout=等待遊戲／架構組件時逾時。請重新啟動遊戲後再試一次。
+managed.failed=配接器安裝失敗；已保留原生輸出。
+managed.ready=兩個音訊配接器均已安裝。即時附加已就緒。
+managed.installed=已安裝 {0} {1}；音訊實作契約相符。
+managed.native=已保留原生輸出：{0} {1}
+managed.graph=音量彙總圖無效。
+managed.il=Play 零音量閘門的 IL 配置不相符。
+managed.attaching=正在調整執行中的用戶端，PID={0}。
+managed.attach_error=附加失敗；已保留原生輸出：{0} {1}
+contract.member=不支援的音訊成員：{0}
+contract.operand=不支援的音訊 IL 運算元：{0}
+contract.type=缺少必要的音訊類型：{0}
+contract.missing=找不到已審查的音訊實作契約。
+contract.mismatch=音訊實作契約不相符：{0} {1}。已變更的類型：{2}。此用戶端需要重新審查。
+device.pcm=PCM 自我測試：{0}，peak={1}，duration=0.35 s。未開啟任何硬體裝置，也未播放聲音。
+device.pass=通過
+device.fail=失敗
+device.silent=FMOD NOSOUND 立體聲矩陣自我測試：{0}。未開啟任何硬體輸出。
+device.enumerate_failed=裝置列舉失敗：{0}
+device.list=ASIO 裝置（使用與遊戲後端相同的 FMOD）：
+device.entry=DeviceID {0}: {1}；驅動程式回報 {2} Hz / {3} 個輸出聲道
+device.none=沒有可用的 ASIO 裝置。
+device.intro=此工具不會啟動遊戲、不會將程式注入遊戲，也不會變更音訊設定。請先調低耳機／喇叭音量。
+device.prompt=請輸入裝置編號：
+device.invalid=裝置編號無效。
+device.confirm=將播放兩個輕柔的音調：先左聲道、後右聲道，透過 Playback 1/2。按 Enter 開始，或關閉視窗取消。
+device.open_failed=無法開啟裝置：{0}
+device.channel=實體 ASIO 聲道 {0}：{1}；FMOD speaker={2}
+device.unknown=未知
+device.left=左聲道（Playback 1）...
+device.right=右聲道（Playback 2）...
+device.play_failed=播放呼叫失敗：{0}
+device.done=播放呼叫已完成，裝置已釋放。請自行確認是否聽見聲音；此工具無法偵測聲音是否送達您的耳機。

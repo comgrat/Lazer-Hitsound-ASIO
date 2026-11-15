@@ -1,3 +1,4 @@
+#pragma once
 #ifdef _WIN32
 #include <wtypes.h>
 typedef unsigned __int64 QWORD;
@@ -35,7 +36,8 @@ typedef int BOOL;
 #define BASS_SAMPLE_FLOAT           256
 #define BASS_ORIGRES_FLOAT          65536
 
-#define BASS_MIXER_CHAN_PAUSE       0x2000
+// BASSmix ABI: 0x2000 is BUFFER, not PAUSE. Keep independently validated.
+#define BASS_MIXER_CHAN_PAUSE       0x20000
 
 typedef unsigned __int64 QWORD;
 typedef DWORD HSAMPLE;
@@ -43,6 +45,8 @@ typedef DWORD HCHANNEL;
 
 const int EVENT_POOL_SIZE = 8192;
 const int MAPPING_NAME_LENGTH = 128;
+const DWORD ASIO_PROTOCOL_MAGIC = 0x41534932;
+const int SAMPLE_ACK_COUNT = 4096;
 
 enum EventType
 {
@@ -82,6 +86,7 @@ enum SampleFormat
 struct SampleLoadedPayload
 {
     HSAMPLE sample;
+    DWORD generation;
     DWORD sampleRate;
     DWORD channels;
     DWORD format;
@@ -117,6 +122,11 @@ struct ChannelStatePayload
     HCHANNEL channel;
     DWORD state;
     double time;
+    HSAMPLE sample;
+    float volume;
+    float pan;
+    float frequency;
+    DWORD looping;
 };
 
 struct ChannelRemovedPayload
@@ -127,6 +137,7 @@ struct ChannelRemovedPayload
 struct Event
 {
     DWORD type;
+    DWORD generation;
     union
     {
         SampleLoadedPayload sampleLoaded;
@@ -140,7 +151,17 @@ struct Event
 
 struct sharepool
 {
+    DWORD magic;
+    DWORD targetPid;
+    volatile LONG backendReady;
+    volatile LONG heartbeat;
     volatile LONG head;
     volatile LONG tail;
+    struct SampleAck
+    {
+        volatile LONG sample;
+        volatile LONG requestedGeneration;
+        volatile LONG readyGeneration;
+    } sampleAcks[SAMPLE_ACK_COUNT];
     Event events[EVENT_POOL_SIZE];
 };
