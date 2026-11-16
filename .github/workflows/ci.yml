@@ -50,4 +50,5 @@ jobs:
             tests/bin/*.log
             tests/Distribution/**/qa-result.json
             tests/Distribution/**/RESULT.json
+            tests/Distribution/**/*.log
           if-no-files-found: ignore

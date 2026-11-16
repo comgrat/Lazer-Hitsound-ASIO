@@ -23,9 +23,17 @@ function Invoke-TestProcess([string]$Exe,[string[]]$Arguments,[string]$Cwd,[stri
     $p.RedirectStandardOutput=$true;$p.RedirectStandardError=$true;$p.RedirectStandardInput=$true
     $p.StandardOutputEncoding=$utf8;$p.StandardErrorEncoding=$utf8
     $process=[Diagnostics.Process]::new();$process.StartInfo=$p
-    $null=$process.Start();$testProcessId=$process.Id
+    # .NET Framework's redirected StreamWriter takes Console.InputEncoding
+    # during Start and can emit its BOM immediately, before any explicit Write.
+    $oldInputEncoding=[Console]::InputEncoding
+    try {[Console]::InputEncoding=$utf8;$null=$process.Start()}
+    finally {[Console]::InputEncoding=$oldInputEncoding}
+    $testProcessId=$process.Id
     $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
-    if($InputText){$process.StandardInput.Write($InputText)};$process.StandardInput.Close()
+    # Send explicit UTF-8 bytes, independent of the restored host encoding.
+    $inputStream=$process.StandardInput.BaseStream
+    if($InputText){$bytes=$utf8.GetBytes($InputText);$inputStream.Write($bytes,0,$bytes.Length)}
+    $inputStream.Close()
     $finished=$process.WaitForExit(25000)
     if(!$finished){$process.Kill();$process.WaitForExit();throw ('Timed out own test process: '+$Tag)}
     $process.WaitForExit()
