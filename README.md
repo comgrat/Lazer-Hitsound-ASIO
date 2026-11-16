@@ -27,12 +27,13 @@ Five languages are integrated into the same application: **简体中文 · 繁�
 - Detects normally launched clients without copying or starting the game. Exiting the game releases the ASIO device, and the tool keeps waiting for the next client.
 - Supports renamed outer tool folders and paths containing spaces or Chinese text. Keep the internal file names, `managed` and `locales` folders intact.
 - Diagnostic file/console writes run in the background so a slow log sink cannot serialize hit layers.
+- The backend wakes on queued events, and optional QPC diagnostics report enqueue-to-handler delay. Loop voice loss fails over only the affected playback lifetime; retired-generation history is bounded while stale PLAY events remain rejected.
 
 Clean defaults are **16 samples / Driver ID 0 / 48000 Hz / Output Volume 50 / Debug Log 0 / Contract Mode 1 (Adaptive)**. Driver 0 is an initial value; select your own device before use. Language preferences are saved separately in `language.ini`. Changing driver, buffer or sample rate requires restarting the game.
 
 ## Compatibility and limits
 
-Reviewed references are .NET 10 Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`. Version 1.1.1 retains [three-tier contract validation](docs/AUDIO_CONTRACT.md). Both modes require structural signatures and critical semantic projections. Default `Contract Mode = 1` (Adaptive) permits unreviewed exact-hash drift only after these checks pass and displays `[Compat/Adaptive]`. `Contract Mode = 0` (Strict) additionally requires an exact reviewed Game/Framework pair. `[Verified Contract]` identifies an exact match. Old five-field INIs default to Adaptive; restart the game after changing mode. A later client date/version alone does not establish compatibility.
+Reviewed references are .NET 10 Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`. Version 1.1.2 retains [three-tier contract validation](docs/AUDIO_CONTRACT.md). Both modes require structural signatures and critical semantic projections. Default `Contract Mode = 1` (Adaptive) permits unreviewed exact-hash drift only after these checks pass and displays `[Compat/Adaptive]`. `Contract Mode = 0` (Strict) additionally requires an exact reviewed Game/Framework pair. `[Verified Contract]` identifies an exact match. Old five-field INIs default to Adaptive; restart the game after changing mode. A later client date/version alone does not establish compatibility.
 
 This tool injects a native hook and installs runtime adapters in the game process. Understand the client's rules before use; this project makes no account-safety guarantee. It does not overwrite the game client, account configuration or beatmap database.
 

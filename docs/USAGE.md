@@ -1,4 +1,4 @@
-# LazerASIO — v1.1.1
+# LazerASIO — v1.1.2
 
 [简体中文](#简体中文) · [繁體中文](#繁體中文) · [English](#english) · [Français](#français) · [Español](#español)
 

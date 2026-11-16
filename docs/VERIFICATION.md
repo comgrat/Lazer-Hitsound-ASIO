@@ -1,12 +1,14 @@
 # Verification and limits
 
-This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the new source snapshot. Version 1.1.1 keeps the binaries from the user-tested candidate commit `7792f7eaa94bd0cf09078c86748a2ff18d0c0bd7`; release source/docs are tagged separately, and the package manifest records `binary_source_commit`.
+This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the source snapshot. Version 1.1.2 keeps the binaries from the listening-tested review-round2 candidate commit `ecaa8c96dfa41c75daac36bc89fa628625a7a409`; release source/docs are tagged separately, and the package manifest records `binary_source_commit`. Earlier release results below remain identified by version.
 
 ## User listening reports
 
 The standalone implementation was tested by its user with a normally started Game2026.1110 / Framework2026.1030 client and a TOPPING E2x2 at 48000 Hz / 16 samples. The user confirmed gameplay hitsounds at an in-game Hitsound setting of 0%, disappearance of the reported echo after asynchronous diagnostic writes, and silence with the tool-side Output Volume set to 0.
 
 The user then tested the v1.1.1-rc.1 local candidate, reported no observed problems and subjectively felt lower latency than before, and approved its release as v1.1.1. There was no loopback recording or controlled end-to-end latency measurement for that comparison. The formal release preserves the candidate's native and managed binaries; the manifest records their binary source commit separately from the release documentation commit.
+
+The user also tested the review-round2 candidate (`ecaa8c96dfa41c75daac36bc89fa628625a7a409`), reported no problems and approved publication as v1.1.2. The release retains all product binaries from that candidate. No new device/session details or controlled acoustic measurements were supplied for this approval.
 
 Those reports apply to the tested implementation/device/session. The five-language UI was verified with software checks, not a separate listening session in every language. They do not establish long-term stability, arbitrary skin/ruleset compatibility, account safety, or end-to-end latency.
 
@@ -44,7 +46,7 @@ The implementation retains legitimate layered sounds. It does not remove events 
 
 ## Compatibility policy
 
-Version 1.1.1 retains structural signatures, critical semantic projections and exact reviewed Game/Framework pairs. Adaptive is the default; Strict additionally requires the exact reviewed pair. Neither mode skips Tier1/2. See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md). Reviewed references remain .NET10 Game2026.1026/1110 and Framework2026.1019/1030. A failed Tier1/2 check refuses attachment in either mode. In-game Hitsound 0 can make native fallback silent.
+Version 1.1.2 retains structural signatures, critical semantic projections and exact reviewed Game/Framework pairs. Adaptive is the default; Strict additionally requires the exact reviewed pair. Neither mode skips Tier1/2. See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md). Reviewed references remain .NET10 Game2026.1026/1110 and Framework2026.1019/1030. A failed Tier1/2 check refuses attachment in either mode. In-game Hitsound 0 can make native fallback silent.
 
 The software buffer size is a configuration, not a latency measurement. No blanket 16-sample stability or 32/64/128 acoustic comparison claim is made.
 
@@ -67,4 +69,30 @@ On Windows 11 Pro 10.0.26300 x64, using MSVC 14.44.35207, Windows SDK 10.0.26100
 
 These are measurements from one local producer/consumer fixture, with a producer that yields between enqueue attempts. They do not measure BASS, a real gameplay workload, ASIO hardware or acoustic latency. Scheduler load and power state can change the result. Core runs print new measurements without a timing threshold; only completion and the sample count are asserted.
 
-Production diagnostics collect enqueue-to-handler QPC delay for PLAY events in a bounded 4096-value window and log p50/p95/max every five seconds when Debug Log=1 or ASIO_DIAGNOSTICS=1. No physical latency or new listening result is claimed for round2.
+Production diagnostics collect enqueue-to-handler QPC delay for PLAY events in a bounded 4096-value window and log p50/p95/max every five seconds when Debug Log=1 or ASIO_DIAGNOSTICS=1. These numbers do not establish physical latency; the user's separate listening approval is recorded above.
+
+## v1.1.2 regression and package evidence
+
+The final candidate build passed from an unrelated working directory with `NoDefaultCurrentDirectoryInExePath=1`, using the toolchain above and .NET SDK 10.0.404. `Build.ps1` invoked the full `Test-Core.ps1`: nine native regression programs, two wake-probe invocations and the managed contract/graph probes all passed.
+
+| Program | Checks or result | Failures |
+| --- | --- | ---: |
+| Routing | 185 | 0 |
+| AudioLeaseMock | 23 | 0 |
+| NativeHookMock | 283 across 24 cases | 0 |
+| NativeRestartProbe | 28 | 0 |
+| MixerAbiRegression | 188 | 0 |
+| PlayerOutputProbe | 27 | 0 |
+| OutputRegression | 351 across 13 stages | 0 |
+| DigitalOutputProbe | 3540 | 0 |
+| ConfigEnumerationProbe | empty exit=0, injected error exit=1, deviceOpens=0, releases=2; PASS | 0 |
+| WakeLatencyProbe old/new | 256 acknowledged events per mode | 0 |
+| Tiered contract/config/session probe | 33 | 0 |
+| ManagedGraphProbe | 11 | 0 |
+| Unicode/config public boundaries | 32 | 0 |
+| Portable candidate package | 136, no warnings | 0 |
+| Multilingual candidate package | 106 | 0 |
+
+New cases cover the named auto-reset wake event, idle heartbeat/burst draining and QPC collection; reordered/commented debug configuration; query passthrough under a held lock; handle release/reuse and same-generation pause/resume during unlocked monitoring; FMOD-owned PCM after source mapping mutation; actual stolen loop handles and generation-specific native restoration, unrelated-channel preservation and a full failure ring; bounded retired history, eviction replay rejection and legal new-generation playback. The failure messages printed by negative fixtures are expected assertions, not build failures.
+
+The protocol magic changed once to `0x41534933`. The hook/backend pair must be delivered together. Retired generations, the 250 ms lease DSP, native restoration and Tier1/2 remain enforced. Full epoch recovery and one-shot natural-tail deferral are design only; see [MAINTENANCE.md](MAINTENANCE.md).
