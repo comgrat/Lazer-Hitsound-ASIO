@@ -31,19 +31,19 @@ if not exist "%OUTPUT_DIR%\locales" mkdir "%OUTPUT_DIR%\locales"
 copy /Y locales\*.lang "%OUTPUT_DIR%\locales\" >nul
 if errorlevel 1 exit /b 1
 
-cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT config.cpp /link /OUT:"%OUTPUT_DIR%\config.exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro config.cpp /link /OUT:"%OUTPUT_DIR%\config.exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
 if errorlevel 1 exit /b 1
 
-cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT osu!asio_sound.cpp /link /OUT:"%OUTPUT_DIR%\asio_backend.exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro osu!asio_sound.cpp /link /OUT:"%OUTPUT_DIR%\asio_backend.exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
 if errorlevel 1 exit /b 1
 
-cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT launcher.cpp /link /OUT:"%OUTPUT_DIR%\osu!asio_sound.exe"
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro launcher.cpp /link /OUT:"%OUTPUT_DIR%\osu!asio_sound.exe"
 if errorlevel 1 exit /b 1
 
-cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT "osu!asio_sound (select osu exename).cpp" /link /OUT:"%OUTPUT_DIR%\osu!asio_sound (select osu exename).exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro "osu!asio_sound (select osu exename).cpp" /link /OUT:"%OUTPUT_DIR%\osu!asio_sound (select osu exename).exe" /LIBPATH:"%FMOD_LIB_DIR%" fmod_vc.lib Advapi32.lib User32.lib
 if errorlevel 1 exit /b 1
 
-cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /LD dllmain.cpp /link /LTCG /IMPLIB:"%OUTPUT_DIR%\asio_hook.lib" /OUT:"%OUTPUT_DIR%\osu!asio_sound.dll" "%MINHOOK_LIB%" User32.lib
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro /LD dllmain.cpp /link /LTCG /IMPLIB:"%OUTPUT_DIR%\asio_hook.lib" /OUT:"%OUTPUT_DIR%\osu!asio_sound.dll" "%MINHOOK_LIB%" User32.lib
 if errorlevel 1 exit /b 1
 
 copy /Y fmod.dll "%OUTPUT_DIR%\fmod.dll" >nul

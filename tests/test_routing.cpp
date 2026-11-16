@@ -97,29 +97,15 @@ void test_default_state_is_undecided()
     CHECK_FALSE(state.suppressNative());
 }
 
-void test_output_gain_keeps_original_gain_for_all_user_volumes()
+void test_output_gain_scales_sample_gain()
 {
-    // The game/user volume values below are deliberately not passed to
-    // outputGain. Each row uses the same original sample gain and proves that
-    // the ASIO path remains audible at 0% and does not scale with the slider.
-    const int userVolumes[] = {0, 1, 25, 50, 100};
-    const float sampleGains[] = {0.0f, 0.25f, 0.5f, 1.0f};
-
-    for (int userVolume : userVolumes)
-    {
-        (void)userVolume; // documented scenario, not a routing input
-        for (float sampleGain : sampleGains)
-            CHECK_NEAR(asio::outputGain(sampleGain, 100), sampleGain, 1.0e-6f);
-    }
-
-    // Non-zero user volumes must not attenuate the original gain either.
-    for (int userVolume : userVolumes)
-    {
-        (void)userVolume;
-        CHECK_NEAR(asio::outputGain(0.8f, 100), 0.8f, 1.0e-6f);
-        CHECK_NEAR(asio::outputGain(0.8f, 50), 0.4f, 1.0e-6f);
-        CHECK_NEAR(asio::outputGain(0.8f, 25), 0.2f, 1.0e-6f);
-    }
+    // This unit only accepts sample gain and ASIO volume. Real user-volume
+    // changes belong to LiveGraphResearch, which changes the actual bindables.
+    for (float sampleGain : {0.0f, 0.25f, 0.5f, 1.0f})
+        CHECK_NEAR(asio::outputGain(sampleGain, 100), sampleGain, 1.0e-6f);
+    CHECK_NEAR(asio::outputGain(0.8f, 100), 0.8f, 1.0e-6f);
+    CHECK_NEAR(asio::outputGain(0.8f, 50), 0.4f, 1.0e-6f);
+    CHECK_NEAR(asio::outputGain(0.8f, 25), 0.2f, 1.0e-6f);
 }
 
 void test_output_gain_preserves_chart_gain()
@@ -422,8 +408,8 @@ int main()
 {
     const TestCase tests[] = {
         {"default_state_is_undecided", test_default_state_is_undecided},
-        {"output_gain_keeps_original_gain_for_all_user_volumes",
-         test_output_gain_keeps_original_gain_for_all_user_volumes},
+        {"output_gain_scales_sample_gain",
+         test_output_gain_scales_sample_gain},
         {"output_gain_preserves_chart_gain", test_output_gain_preserves_chart_gain},
         {"output_gain_applies_asio_volume_exactly_once",
          test_output_gain_applies_asio_volume_exactly_once},

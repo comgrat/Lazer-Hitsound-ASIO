@@ -931,7 +931,14 @@ if ($hasShowFlag -and $hasListFlag -and (Test-Path -LiteralPath $relocatedConfig
         $listResult = Invoke-ConfigProcess -Executable $relocatedConfigExe -Arguments '--list' -WorkingDirectory $emptyCwd -StdoutPath $listStdout -StderrPath $listStderr
         Add-Check -Name 'config.exe --list exits 0' -Ok ($null -ne $listResult -and $listResult.ExitCode -eq 0 -and -not $listResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $listResult.ExitCode, $listResult.TimedOut, $listResult.DurationMilliseconds)
         if ($null -ne $listResult) {
-            Add-Check -Name 'config.exe --list enumerates at least one ASIO device' -Ok ($listResult.Stdout -match '(?i)DeviceID\s+\d+') -Detail $(if ($listResult.Stdout -match '(?i)DeviceID\s+\d+') { 'DeviceID line present' } else { 'no DeviceID line' })
+            $emptyMessages=@(Get-ChildItem -LiteralPath (Join-Path $relocation 'locales') -Filter '*.lang' -File | ForEach-Object {
+                foreach($line in [IO.File]::ReadAllLines($_.FullName,[Text.Encoding]::UTF8)) {
+                    if($line.StartsWith('config.no_devices=')){$line.Substring('config.no_devices='.Length)}
+                }
+            })
+            $hasDevices=$listResult.Stdout -match '(?i)DeviceID\s+\d+'
+            $reportsEmpty=@($emptyMessages|Where-Object {$listResult.Stdout.Contains($_)}).Count -gt 0
+            Add-Check -Name 'config.exe --list reports devices or successful empty enumeration' -Ok ($hasDevices -or $reportsEmpty) -Detail $(if($hasDevices){'DeviceID line present'}else{'no-device message present='+$reportsEmpty})
             $listForbidden = @('System_Init', 'FMOD_System_Init', 'FMOD System Initialize', '(?:\u6B63\u5728\u68C0\u67E5\u6240\u9009\u8BBE\u5907|\u914D\u7F6E\u5DF2\u4FDD\u5B58)')
             $listForbiddenHits = @($listForbidden | Where-Object { $listResult.Stdout -match $_ -or $listResult.Stderr -match $_ })
             Add-Check -Name 'config.exe --list never initialises/opens device' -Ok ($listForbiddenHits.Count -eq 0) -Detail ($(if ($listForbiddenHits.Count) { $listForbiddenHits -join ', ' } else { 'no System_Init/device-check markers' }))

@@ -1006,8 +1006,12 @@ void test_restore_failure_sets_pending_and_monitor_retries()
     pollerRunning = true;
     std::thread retry([] { monitorChannels(nullptr); });
     CHECK_TRUE(waitFor([&] {
+        EnterCriticalSection(&stateLock);
         ChannelSnapshot current = channelSnapshot(fixture.channel);
-        return !current.restorePending && g_mock.nativeVolume[fixture.channel] == 0.5f;
+        const auto native = g_mock.nativeVolume.find(fixture.channel);
+        bool restored = !current.restorePending && native != g_mock.nativeVolume.end() && native->second == 0.5f;
+        LeaveCriticalSection(&stateLock);
+        return restored;
     }));
     pollerRunning = false;
     retry.join();

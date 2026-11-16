@@ -1,0 +1,53 @@
+name: Windows build and regression
+on:
+  push:
+    branches: [main, fix/community-review]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Validate translation catalogs
+        run: node tools/i18n/Check-Catalogs.cjs
+      - name: Build and run bounded regressions
+        shell: powershell
+        run: .\Build.ps1
+      - name: Exercise Unicode paths and localized invalid config
+        shell: powershell
+        run: .\tools\qa\Test-PublicBoundaries.ps1
+      - name: Validate source archive export and preflight failures
+        shell: powershell
+        run: .\tools\qa\Test-Export.ps1
+      - name: Export clean package
+        shell: powershell
+        run: .\distribution\Build-Share.ps1 -OutputDirectory .\artifacts\LazerASIO-CI
+      - name: Check package and multilingual UI without ASIO hardware
+        shell: powershell
+        run: |
+          .\tools\qa\Test-SharePackage.ps1 -PackageDirectory .\artifacts\LazerASIO-CI
+          if ($LASTEXITCODE) { throw 'Package regression failed.' }
+          .\tools\qa\Test-Multilingual.ps1 -PackageDirectory .\artifacts\LazerASIO-CI
+      - name: Preserve diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs
+          path: |
+            tests/bin/*.log
+            tests/Distribution/**/qa-result.json
+            tests/Distribution/**/RESULT.json
+          if-no-files-found: ignore

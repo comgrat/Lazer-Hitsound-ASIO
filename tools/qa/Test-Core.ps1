@@ -1,8 +1,9 @@
 #requires -Version 5.1
 [CmdletBinding()]
-param()
+param([int]$TestTimeoutSeconds=120)
 $ErrorActionPreference='Stop'
 $repo=(Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'Invoke-BoundedProcess.ps1')
 if(!(Get-Command cl.exe -ErrorAction SilentlyContinue)){throw 'Use an x64 Visual Studio developer shell.'}
 $output=Join-Path $repo 'tests\bin'
 New-Item -ItemType Directory -Path $output -Force|Out-Null
@@ -16,7 +17,8 @@ $cases=@(
  @{name='mixer-abi';source='MixerAbiRegression.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='player-output';source='PlayerOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
  @{name='output-regression';source='OutputRegression.cpp';fmod=$true;hook=$false;arguments=@('--artifacts',$fixtureDirectory)},
- @{name='digital-output';source='DigitalOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()}
+ @{name='digital-output';source='DigitalOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
+ @{name='config-enumeration';source='ConfigEnumerationProbe.cpp';fmod=$false;hook=$false;arguments=@()}
 )
 $failed=@()
 Copy-Item -LiteralPath (Join-Path $repo 'fmod.dll') -Destination (Join-Path $output 'fmod.dll') -Force
@@ -28,10 +30,10 @@ foreach($case in $cases){
     if($case.hook){$arguments+=(Join-Path $repo 'lib\libMinHook.x64.lib')}
     & cl.exe @arguments
     if($LASTEXITCODE){$failed+=$case.name;continue}
-    & $exe @($case.arguments)
-    if($LASTEXITCODE){$failed+=$case.name}
+    try {
+        Invoke-BoundedProcess -FilePath $exe -ArgumentList @($case.arguments) -WorkingDirectory $output -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output $case.name)
+    } catch {Write-Warning $_.Exception.Message;$failed+=$case.name}
 }
 if($failed.Count){throw ('Failed regressions: '+($failed -join ', '))}
-& dotnet.exe run --project (Join-Path $repo 'tests\AudioContractProbe\AudioContractProbe.csproj') -c Release -- --tiered-self-test
-if($LASTEXITCODE){throw 'Tiered contract self-test failed.'}
+Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\AudioContractProbe\AudioContractProbe.csproj'),'-c','Release','--','--tiered-self-test') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'tiered-contract')
 Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed tiered-contract self-test; hardware output and game startup were not used.')
