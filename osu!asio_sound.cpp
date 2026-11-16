@@ -78,6 +78,9 @@ static int driverId = 0;
 static int sampleRate = 48000;
 static int outputVolume = 100;
 static int debugLogEnabled = 0;
+// Opt-in per-event trace (playback-trace.enabled beside the tool). Debug Log
+// alone keeps the periodic status, counters and real failures readable.
+static bool detailedTraceEnabled = false;
 static std::wstring configPath;
 static asio::Settings startupSettings;
 static std::atomic<int> requestedOutputVolume{100};
@@ -135,13 +138,15 @@ struct PlaybackStats
     unsigned long long playRequests = 0;
     unsigned long long starts = 0;
     unsigned long long missingSamples = 0;
+    unsigned long long staleRejected = 0;
+    unsigned long long finished = 0;
 };
 static PlaybackStats playbackStats; // Accessed only by the event worker.
 static unsigned long long nextVoiceId = 0;
 
 static void traceVoice(const char *action, const ChannelData &data)
 {
-    if (!debugLogEnabled) return;
+    if (!debugLogEnabled || !detailedTraceEnabled) return;
     if(!playbackLog)return;
     playbackLog->write("{\"event\":\"voice_%s\",\"tick_ms\":%llu,\"channel\":%lu,\"generation\":%lu,\"sample\":%lu,\"voice\":%llu,\"sample_gain\":%.6f,\"asio_percent\":%d}\n",
         action, GetTickCount64(), static_cast<unsigned long>(data.handle), static_cast<unsigned long>(data.generation),
@@ -150,9 +155,9 @@ static void traceVoice(const char *action, const ChannelData &data)
 
 static void reportPlaybackStats()
 {
-    if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu missingSample=%llu\n",
+    if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu finished=%llu missingSample=%llu staleRejected=%llu\n",
            MyPool->backendReady, playbackStats.samplesLoaded, playbackStats.playRequests,
-           playbackStats.starts, playbackStats.missingSamples);
+           playbackStats.starts, playbackStats.finished, playbackStats.missingSamples, playbackStats.staleRejected);
     if (MyPool && MyPool->diagnosticsEnabled && playbackLog)
     {
         auto delay = queueLatency.summary();
@@ -172,6 +177,18 @@ static void debugPrintf(const char *format, ...)
     va_end(args);
 }
 
+// Per-event lines: off unless both Debug Log and the trace marker are set.
+static void tracePrintf(const char *format, ...)
+{
+    if (!debugLogEnabled || !detailedTraceEnabled || !playbackLog)
+        return;
+
+    va_list args;
+    va_start(args, format);
+    playbackLog->writeV(format,args);
+    va_end(args);
+}
+
 static bool init()
 {
     configPath=asio::executableSibling(L"config.ini");
@@ -183,6 +200,8 @@ static bool init()
     bufferSize=startupSettings.buffer; driverId=startupSettings.driver; sampleRate=startupSettings.rate;
     outputVolume=startupSettings.volume; debugLogEnabled=startupSettings.debug;
     requestedOutputVolume=outputVolume; requestedDebugLog=debugLogEnabled;
+    const auto traceMarker=asio::executableSibling(L"playback-trace.enabled");
+    detailedTraceEnabled=!traceMarker.empty()&&GetFileAttributesW(traceMarker.c_str())!=INVALID_FILE_ATTRIBUTES;
     puts(ui::text("backend.config_loaded",{std::to_string(GetCurrentProcessId()),asio::utf8Path(configPath),std::to_string(outputVolume)}).c_str());
     return true;
 }
@@ -222,6 +241,7 @@ static void finishChannel(ChannelData &data, FMOD_RESULT reason)
     data.channel = nullptr;
     data.playing = false;
     data.phase = ChannelData::Phase::Finished;
+    ++playbackStats.finished;
     traceVoice("finished", data);
     if (data.looping)
     {
@@ -394,7 +414,7 @@ static void ensurePlaying(ChannelData &channelData, SampleData &sampleData)
         channelData.voiceId = ++nextVoiceId;
         traceVoice("create",channelData);
         if (!applyChannelState(channelData)) return;
-        debugPrintf("[FMOD] Channel created for sample %lu\n", (unsigned long)channelData.sample);
+        tracePrintf("[FMOD] Channel created for sample %lu\n", (unsigned long)channelData.sample);
     }
 
     FMOD_RESULT result = FMOD_Channel_SetPaused(channelData.channel, false);
@@ -414,17 +434,22 @@ static void ensurePlaying(ChannelData &channelData, SampleData &sampleData)
     channelData.phase = ChannelData::Phase::Playing;
     traceVoice("unpause",channelData);
     ++playbackStats.starts;
-    FMOD_BOOL paused = false;
-    FMOD_BOOL isPlaying = false;
-    float audibility = 0.0f;
-    FMOD_Channel_GetPaused(channelData.channel, &paused);
-    FMOD_Channel_IsPlaying(channelData.channel, &isPlaying);
-    FMOD_Channel_GetAudibility(channelData.channel, &audibility);
-    debugPrintf("[FMOD] Channel %lu playing paused=%d isPlaying=%d audibility=%.4f\n",
-                (unsigned long)channelData.sample,
-                paused,
-                isPlaying,
-                audibility);
+    // These getters only feed a trace line. Without the trace marker they
+    // would cost three FMOD calls per hit on the event worker.
+    if (debugLogEnabled && detailedTraceEnabled)
+    {
+        FMOD_BOOL paused = false;
+        FMOD_BOOL isPlaying = false;
+        float audibility = 0.0f;
+        FMOD_Channel_GetPaused(channelData.channel, &paused);
+        FMOD_Channel_IsPlaying(channelData.channel, &isPlaying);
+        FMOD_Channel_GetAudibility(channelData.channel, &audibility);
+        tracePrintf("[FMOD] Channel %lu playing paused=%d isPlaying=%d audibility=%.4f\n",
+                    (unsigned long)channelData.sample,
+                    paused,
+                    isPlaying,
+                    audibility);
+    }
 }
 
 static void ensurePaused(ChannelData &channelData)
@@ -531,7 +556,10 @@ static DWORD WINAPI mainloop(LPVOID)
                     (event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING);
                 if (!generations.accept(handle, event.generation, event.type == EVENT_CHANNEL_CREATED, sameLifetime, mayCreate))
                 {
-                    debugPrintf("[FMOD] stale/retired event ignored channel=%lu generation=%lu type=%lu\n", handle, event.generation, event.type);
+                    // Expected for every late event after natural completion;
+                    // counted in [ASIO status], listed only in detailed traces.
+                    ++playbackStats.staleRejected;
+                    tracePrintf("[FMOD] stale/retired event ignored channel=%lu generation=%lu type=%lu\n", handle, event.generation, event.type);
                     continue;
                 }
             }
@@ -592,7 +620,7 @@ static DWORD WINAPI mainloop(LPVOID)
                 channelData.sample = event.data.channelCreated.sample;
                 channelData.looping = (event.data.channelCreated.flags & BASS_SAMPLE_LOOP) != 0;
                 channels[event.data.channelCreated.channel] = channelData;
-                debugPrintf("[FMOD] Channel event created: sample=%lu channel=%lu flags=%u\n",
+                tracePrintf("[FMOD] Channel event created: sample=%lu channel=%lu flags=%u\n",
                             (unsigned long)event.data.channelCreated.sample,
                             (unsigned long)event.data.channelCreated.channel,
                             event.data.channelCreated.flags);
@@ -645,7 +673,7 @@ static DWORD WINAPI mainloop(LPVOID)
                     break;
                 }
 
-                debugPrintf("[FMOD] Channel state: channel=%lu state=%u\n",
+                tracePrintf("[FMOD] Channel state: channel=%lu state=%u\n",
                             (unsigned long)event.data.channelState.channel,
                             event.data.channelState.state);
 

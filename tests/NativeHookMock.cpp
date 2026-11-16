@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <fcntl.h>
 #include <functional>
+#include <io.h>
 #include <thread>
 #include <utility>
 #include "../settings.h"
@@ -693,6 +695,92 @@ void test_untracked_stream_free_publishes_nothing()
     CHECK_FALSE(channelPresent(fixture.channel));
 }
 
+// Debug Log alone must not write per-hit lines; the trace marker opts in.
+// The sink is a real AsyncTextLog on a pipe, so the test reads what reaches it.
+void test_hook_per_hit_lines_require_trace_marker()
+{
+    HANDLE pipeRead = nullptr, pipeWrite = nullptr;
+    CHECK_TRUE(CreatePipe(&pipeRead, &pipeWrite, nullptr, 1 << 20) != FALSE);
+    if (!pipeRead || !pipeWrite)
+        return;
+    int descriptor = _open_osfhandle(reinterpret_cast<intptr_t>(pipeWrite), _O_BINARY);
+    FILE *sink = descriptor >= 0 ? _fdopen(descriptor, "wb") : nullptr;
+    auto *log = new asio::AsyncTextLog;
+    CHECK_TRUE(sink && log->start(sink));
+    if (!sink)
+    {
+        CloseHandle(pipeRead);
+        return;
+    }
+    auto *previous = hookTextLog;
+    hookTextLog = log;
+
+    auto runHit = [](bool trace) {
+        resetFixture();
+        debugLogEnabled = 1;
+        detailedTraceEnabled = trace;
+        Fixture fixture = createChannel(true, 0.25f);
+        startExternal(fixture, 0.5f);
+        MyBASS_ChannelPause(fixture.channel);
+        detailedTraceEnabled = false;
+        debugLogEnabled = 0;
+    };
+    // The log is FIFO: once a sentinel written after the hit arrives, every
+    // earlier line has been flushed. A contention drop retries the whole hit.
+    unsigned sentinel = 0;
+    auto capture = [&](bool trace) {
+        std::string text;
+        for (int attempt = 0; attempt < 5; ++attempt)
+        {
+            const unsigned long droppedBefore = log->dropped();
+            runHit(trace);
+            char marker[64];
+            std::snprintf(marker, sizeof(marker), "trace-test-sentinel-%u\n", ++sentinel);
+            log->write("%s", marker);
+            text.clear();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (text.find(marker) == std::string::npos && std::chrono::steady_clock::now() < deadline)
+            {
+                DWORD available = 0;
+                if (!PeekNamedPipe(pipeRead, nullptr, 0, nullptr, &available, nullptr))
+                    break;
+                if (available == 0)
+                {
+                    Sleep(1);
+                    continue;
+                }
+                std::string chunk(available, '\0');
+                DWORD read = 0;
+                if (!ReadFile(pipeRead, chunk.data(), available, &read, nullptr) || read == 0)
+                    break;
+                text.append(chunk.data(), read);
+            }
+            if (log->dropped() == droppedBefore && text.find(marker) != std::string::npos)
+                break;
+        }
+        return text;
+    };
+
+    std::string quiet = capture(false);
+    CHECK_TRUE(quiet.find("trace-test-sentinel-") != std::string::npos);
+    CHECK_TRUE(quiet.find("\"event\":\"start\"") == std::string::npos);
+    CHECK_TRUE(quiet.find("\"event\":\"context\"") == std::string::npos);
+    CHECK_TRUE(quiet.find("BASS_SampleGetChannel") == std::string::npos);
+    // Sample publication is not per hit and stays in the Debug Log output.
+    CHECK_TRUE(quiet.find("publishSample success") != std::string::npos);
+
+    std::string traced = capture(true);
+    CHECK_TRUE(traced.find("trace-test-sentinel-") != std::string::npos);
+    CHECK_TRUE(traced.find("\"event\":\"start\"") != std::string::npos);
+    CHECK_TRUE(traced.find("\"event\":\"pause\"") != std::string::npos);
+    CHECK_TRUE(traced.find("BASS_SampleGetChannel") != std::string::npos);
+
+    hookTextLog = previous;
+    CloseHandle(pipeRead);
+    CHECK_TRUE(log->stop());
+    fclose(sink);
+}
+
 void test_handle_reuse_advances_generation()
 {
     resetFixture();
@@ -1367,6 +1455,7 @@ int main()
         {"stream_free_and_channel_stop_failure_keep_tracking",
          test_stream_free_and_channel_stop_failure_keep_tracking},
         {"untracked_stream_free_publishes_nothing", test_untracked_stream_free_publishes_nothing},
+        {"hook_per_hit_lines_require_trace_marker", test_hook_per_hit_lines_require_trace_marker},
         {"handle_reuse_advances_generation", test_handle_reuse_advances_generation},
         {"queue_full_start_falls_back_native_without_mute",
          test_queue_full_start_falls_back_native_without_mute},

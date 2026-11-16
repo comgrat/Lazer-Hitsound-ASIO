@@ -130,6 +130,8 @@ static std::recursive_mutex samplePublishMutex;
 static HMODULE selfModule = NULL;
 
 static int debugLogEnabled = 0;
+// Per-hit lines need both Debug Log and playback-trace.enabled beside the tool.
+static bool detailedTraceEnabled = false;
 static asio::AsyncTextLog* hookTextLog = nullptr;
 static std::atomic<bool> traceEnabled{false};
 // Optional lock-free diagnostic counters, read by the managed timer.
@@ -228,6 +230,8 @@ static void startHookDiagnostics()
     if (!debugLogEnabled || hookTextLog) return;
     auto directory = hookDirectory();
     if (directory.empty()) return;
+    // Runs on the startup thread, never under loader lock.
+    detailedTraceEnabled = GetFileAttributesW((directory + L"playback-trace.enabled").c_str()) != INVALID_FILE_ATTRIBUTES;
     hookTextLog = new(std::nothrow) asio::AsyncTextLog;
     if (hookTextLog) hookTextLog->startFile((directory + L"asio_hook.log").c_str());
 }
@@ -247,6 +251,21 @@ static void logPrintf(const char *format, ...)
     va_end(args);
 
     if (hookTextLog) hookTextLog->write("%s",buffer);
+}
+
+// Per-hit lines (allocation, context, start/pause) are opt-in detailed traces.
+static void tracePrintf(const char *format, ...)
+{
+    if (!logLockInitialised || !debugLogEnabled || !detailedTraceEnabled || !hookTextLog)
+        return;
+
+    char buffer[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    hookTextLog->write("%s",buffer);
 }
 
 static bool pushEvent(const Event &event)
@@ -468,11 +487,9 @@ static void ensureSamplePublished(HSAMPLE sample)
     bool alreadyPublished = sampleInfoMap.find(sample) != sampleInfoMap.end();
     LeaveCriticalSection(&stateLock);
 
+    // The normal fast path: every channel allocation of a loaded sample.
     if (alreadyPublished)
-    {
-        logPrintf("[ASIO Hook] ensureSamplePublished skipped sample=%lu reason=already_published\n", (unsigned long)sample);
         return;
-    }
 
     logPrintf("[ASIO Hook] ensureSamplePublished retry sample=%lu\n", (unsigned long)sample);
     if (!publishSample(sample))
@@ -614,7 +631,7 @@ static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo
     bool accepted = pushEvent(event);
     if (accepted && state == CHANNEL_STATE_PLAYING) traceCount(11);
     if (accepted)
-        logPrintf("{\"event\":\"%s\",\"channel\":%lu,\"generation\":%lu,\"route\":\"external\",\"gain\":%.6f,\"source\":\"hook_queue\",\"tick_ms\":%llu,\"sample\":%lu}\n",
+        tracePrintf("{\"event\":\"%s\",\"channel\":%lu,\"generation\":%lu,\"route\":\"external\",\"gain\":%.6f,\"source\":\"hook_queue\",\"tick_ms\":%llu,\"sample\":%lu}\n",
             state == CHANNEL_STATE_PLAYING ? "start" : "pause", (unsigned long)channel,
             (unsigned long)event.generation, info.sampleGain, GetTickCount64(), (unsigned long)info.sample);
     if (!accepted)
@@ -759,7 +776,7 @@ extern "C" __declspec(dllexport) void AsioChannelContextV2(DWORD channel, DWORD 
         traceCount(0);
         if (eligible) traceCount(1);
         AsioChannelContext(channel, sampleGain, eligible);
-        logPrintf("{\"event\":\"context\",\"channel\":%lu,\"generation\":%lu,\"eligible\":%lu,\"gain\":%.6f}\n",
+        tracePrintf("{\"event\":\"context\",\"channel\":%lu,\"generation\":%lu,\"eligible\":%lu,\"gain\":%.6f}\n",
             (unsigned long)channel, (unsigned long)generation, (unsigned long)eligible, sampleGain);
     }
     else traceCount(2);
@@ -847,14 +864,12 @@ BOOL WINAPI MyBASS_SampleFree(HSAMPLE handle)
 
 HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
 {
-    logPrintf("[ASIO Hook] BASS_SampleGetChannel sample=%lu flags=%lu\n",
-              (unsigned long)handle,
-              (unsigned long)flags);
     ensureSamplePublished(handle);
 
     HCHANNEL channel = pOrigBASS_SampleGetChannel(handle, flags);
-    logPrintf("[ASIO Hook] BASS_SampleGetChannel result sample=%lu channel=%lu\n",
+    tracePrintf("[ASIO Hook] BASS_SampleGetChannel sample=%lu flags=%lu -> channel=%lu\n",
               (unsigned long)handle,
+              (unsigned long)flags,
               (unsigned long)channel);
     if (channel == 0)
         return channel;

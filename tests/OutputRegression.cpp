@@ -387,8 +387,13 @@ static void workerFinishAndLateEvents() {
         check(activeChannels() == 0, "late update/PLAY/pause/sample-LOADED leave naturally-finished voice silent");
         worker.stop();
     }
-    printf("MEASURE finished-worker: voiceAllocations=%llu successfulUnpauses=%llu PLAY=%llu\n", nextVoiceId, playbackStats.starts, playbackStats.playRequests);
+    printf("MEASURE finished-worker: voiceAllocations=%llu successfulUnpauses=%llu PLAY=%llu finished=%llu staleRejected=%llu\n",
+        nextVoiceId, playbackStats.starts, playbackStats.playRequests, playbackStats.finished, playbackStats.staleRejected);
     check(nextVoiceId == 1 && playbackStats.starts == 1, "natural-finish sweep prevents same-generation reallocation");
+    // Four late channel events (update, PLAY, pause, PLAY) target the retired
+    // generation; LOADED is not a channel event. Counters work without tracing.
+    check(!detailedTraceEnabled && playbackStats.finished == 1 && playbackStats.staleRejected == 4,
+        "status counts one natural finish and every rejected late event without detailed tracing");
 }
 
 static void removedLatePlay() {
