@@ -6,7 +6,7 @@ The direct upstream is [Mother-Ship/osu-lazer-External-ASIO-Sound](https://githu
 
 ## FMOD Core
 
-FMOD Core and its SDK/runtime are Copyright (c) Firelight Technologies Pty Ltd. FMOD is proprietary software subject to [FMOD licensing terms](https://www.fmod.com/legal). The SDK headers, import libraries and runtime inherited from upstream are not covered by the MinHook or Harmony licenses. Review the applicable terms for your own use and redistribution.
+FMOD Core and its SDK/runtime are Copyright (c) Firelight Technologies Pty Ltd. FMOD is proprietary software subject to [FMOD licensing terms](https://www.fmod.com/legal). The inherited headers identify FMOD 2.02.24. The SDK headers, import libraries and runtime inherited from upstream are not covered by the MinHook or Harmony licenses. The original version-specific agreement and evidence of applicable distribution permission are absent; [licenses/FMOD.txt](licenses/FMOD.txt) records this unresolved status and is not a replacement license grant. Obtain the authentic agreement and any required permission for your use and redistribution.
 
 ## MinHook
 

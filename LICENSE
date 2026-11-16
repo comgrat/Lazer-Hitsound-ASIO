@@ -1,0 +1,21 @@
+LICENSE STATUS — NO PROJECT-WIDE LICENSE GRANTED
+
+This file records the licensing status. It is not an MIT, GPL, or other
+open-source license and does not grant a project-wide right to use, modify,
+or redistribute this source or its binaries.
+
+The direct upstream is Mother-Ship/osu-lazer-External-ASIO-Sound, based on
+XTXTMTXTX/osu-External-ASIO-Sound. A project-wide license grant for the
+inherited source has not been established. The maintainer of this fork cannot
+relicense code owned by upstream authors. Rights remain with their holders.
+
+Separately licensed dependencies retain their own terms:
+- MinHook: licenses/MinHook.txt
+- Harmony: licenses/Harmony.txt
+- FMOD Core: proprietary; see licenses/FMOD.txt and THIRD_PARTY_NOTICES.md.
+
+Public source availability, attribution, a GitHub fork, and a downloadable
+release do not establish permission from all rights holders. Obtain the
+required permissions before relying on this project for redistribution or
+commercial use. A future license decision must identify the covered code and
+have authorization from the relevant owners.

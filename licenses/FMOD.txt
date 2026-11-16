@@ -1,0 +1,20 @@
+FMOD CORE — PROPRIETARY DEPENDENCY / LICENSE EVIDENCE STATUS
+
+FMOD Core and its SDK/runtime are copyright Firelight Technologies Pty Ltd.
+The inherited headers in this repository identify FMOD 2.02.24.
+
+Official licensing information:
+https://www.fmod.com/legal
+
+This file is a dependency notice, NOT the FMOD license agreement and NOT a
+redistribution grant. The version-specific agreement accompanying the SDK
+from which the inherited runtime/import library were obtained is absent from
+the inherited repository. Its accepted terms and any applicable registration
+or distribution entitlement have not been established by this project.
+
+Do not interpret MinHook's or Harmony's MIT licenses, this repository's source
+availability, or a public release as an FMOD license. Obtain the appropriate
+SDK and the corresponding agreement/permission from Firelight Technologies
+and preserve its required notices for your use and redistribution. When that
+version-specific agreement is established, include the authentic text as
+permitted; do not substitute current website terms for historical evidence.

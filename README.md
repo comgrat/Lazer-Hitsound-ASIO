@@ -6,7 +6,7 @@ Standalone ASIO output for gameplay hitsounds on reviewed osu!lazer / Tachyon au
 
 本项目基于 [Mother-Ship/osu-lazer-External-ASIO-Sound](https://github.com/Mother-Ship/osu-lazer-External-ASIO-Sound) 修改；更早上游为 [XTXTMTXTX/osu-External-ASIO-Sound](https://github.com/XTXTMTXTX/osu-External-ASIO-Sound)。由 comgrat 独立维护，非上游官方发布。保留原作者署名和提交历史。
 
-This fork is based on Mother-Ship's lazer adaptation and XTXTMTXTX's original project. It is independently maintained by **comgrat** and is not an official upstream release. See [AUTHORS](AUTHORS.md) and [third-party notices](THIRD_PARTY_NOTICES.md).
+This fork is based on Mother-Ship's lazer adaptation and XTXTMTXTX's original project. It is independently maintained by **comgrat** and is not an official upstream release. See [AUTHORS](AUTHORS.md) and [third-party notices](THIRD_PARTY_NOTICES.md). **No project-wide license has been established**; [LICENSE](LICENSE) records the unresolved upstream and FMOD permissions.
 
 ## 使用 / Quick start
 
@@ -40,6 +40,6 @@ Restart the game before reattaching after closing the tool. Multiple clients are
 
 ## Source and development
 
-Windows x64, MSVC C++17, Windows SDK and .NET 10 SDK are required to build. Run `Build.ps1` from an x64 Visual Studio developer shell, then export a clean portable package with `distribution/Build-Share.ps1`. See [build instructions](docs/BUILD.md).
+Windows x64, MSVC C++17, Windows SDK and .NET 10 SDK are required to build. Run `Build.ps1` from an x64 Visual Studio developer shell, then export a clean portable package with `distribution/Build-Share.ps1`. See [build instructions](docs/BUILD.md), [CI results](https://github.com/comgrat/Lazer-Hitsound-ASIO/actions) and the [maintenance decisions and recovery plan](docs/MAINTENANCE.md). Report reproducible problems through [Issues](https://github.com/comgrat/Lazer-Hitsound-ASIO/issues).
 
 User logs, device markers, language preferences, game files and development investigation reports are not included in this repository's new working tree or portable releases. The original upstream history is retained.
