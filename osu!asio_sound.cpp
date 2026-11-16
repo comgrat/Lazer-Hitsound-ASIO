@@ -29,7 +29,6 @@ using namespace std;
 struct SampleData
 {
     FMOD_SOUND *sound;
-    vector<char> pcm;
     DWORD sampleRate;
     DWORD channels;
     DWORD format;
@@ -289,15 +288,10 @@ static bool loadSampleData(const SampleLoadedPayload &payload, unordered_map<HSA
     }
 
     SampleData sampleData;
-    sampleData.pcm.resize(payload.dataLength);
-    memcpy(sampleData.pcm.data(), view, payload.dataLength);
     sampleData.sampleRate = payload.sampleRate;
     sampleData.channels = payload.channels;
     sampleData.format = payload.format;
     sampleData.generation = payload.generation;
-
-    UnmapViewOfFile(view);
-    CloseHandle(mapping);
 
     FMOD_CREATESOUNDEXINFO exinfo;
     memset(&exinfo, 0, sizeof(exinfo));
@@ -308,15 +302,22 @@ static bool loadSampleData(const SampleLoadedPayload &payload, unordered_map<HSA
     exinfo.format = toFmodFormat(payload.format);
 
     if (exinfo.format == FMOD_SOUND_FORMAT_NONE)
+    {
+        UnmapViewOfFile(view);
+        CloseHandle(mapping);
         return false;
+    }
 
     FMOD_RESULT result = FMOD_System_CreateSound(
         fmodSystem,
-        sampleData.pcm.data(),
+        static_cast<const char *>(view),
         FMOD_OPENMEMORY | FMOD_OPENRAW | FMOD_CREATESAMPLE | FMOD_LOWMEM | FMOD_LOOP_OFF,
         &exinfo,
         &sampleData.sound);
 
+    // FMOD_OPENMEMORY + CREATESAMPLE copies the source before returning.
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
     if (result != FMOD_OK)
     {
         debugPrintf("[FMOD] CreateSound failed: %s\n", FMOD_ErrorString(result));
@@ -327,7 +328,7 @@ static bool loadSampleData(const SampleLoadedPayload &payload, unordered_map<HSA
     if (existing != samples.end() && existing->second.sound != nullptr)
         FMOD_Sound_Release(existing->second.sound);
 
-    samples[payload.sample] = sampleData;
+    samples[payload.sample] = std::move(sampleData);
     auto *ack = findSampleAck(payload.sample);
     if (ack && DWORD(ack->requestedGeneration) == payload.generation)
         InterlockedExchange(&ack->readyGeneration, LONG(payload.generation));
@@ -815,21 +816,6 @@ int main(int argc, char *argv[])
     if (!init()) return 1;
     printf("FMOD Studio Low Level API (C) Firelight Technologies Pty Ltd.\n");
 
-
-#ifdef __EXESELECT
-    printf("Input the osu executable name with extension name (exp: osu!.exe): ");
-    char tmpc[256] = "";
-    if (fgets(tmpc, sizeof(tmpc), stdin) != nullptr)
-    {
-        int length = (int)strlen(tmpc);
-        while (length && (tmpc[length - 1] == ' ' || tmpc[length - 1] == '\n' || tmpc[length - 1] == '\r'))
-            --length;
-        tmpc[length] = '\0';
-        if (length > 0)
-            strcpy(osuExename, tmpc);
-    }
-    printf("Executable name is : \"%s\"\n", osuExename);
-#endif
 
     FMOD_RESULT initRet = FMOD_System_Create(&fmodSystem, FMOD_VERSION);
     if (initRet != FMOD_OK)

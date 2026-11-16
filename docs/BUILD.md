@@ -78,3 +78,9 @@ cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT tests\WakeLatencyProbe.cpp /Fetests\b
 ```
 
 Only the backend owns the 1 ms timer request, paired by RAII on return. The hook signals after publishing the queue tail and releasing queueLock. The worker drains the queue and uses a 5 ms timed wait so idle heartbeat/config/FMOD maintenance continues. The missing-event fallback remains Sleep(1). See [VERIFICATION.md](VERIFICATION.md) for measurements and limits.
+
+## Round2 build entry and SDK choice
+
+Build.ps1 invokes Compile.bat by its full, quoted path, and Test-ASIO-Device.cmd uses %~dp0AsioDeviceCheck.exe. This supports a caller that sets NoDefaultCurrentDirectoryInExePath=1 and has an unrelated working directory.
+
+The SDK rollForward setting stays disabled for round2. Release provenance currently relies on the pinned .NET 10.0.404 SDK also selected in CI; accepting another SDK without recording that choice would make compiler attribution less precise. Contributors should install the pinned SDK, and release builds should use CI or that exact SDK. The target framework remains net10.0.

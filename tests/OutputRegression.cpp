@@ -219,6 +219,15 @@ static void helpersAndVolume() {
     MappedSample mapped(17, 3, 48000 * 3);
     unordered_map<HSAMPLE, SampleData> samples;
     require(loadSampleData(mapped.payload, samples), "production PCM mapping/ACK load");
+    float firstPcm = mapped.pcm[1];
+    mapped.pcm[1] = 0.9f;
+    void *fmodPcm = nullptr, *secondPcm = nullptr;
+    unsigned int firstBytes = 0, secondBytes = 0;
+    require(FMOD_Sound_Lock(samples.at(17).sound, 0, 8, &fmodPcm, &secondPcm, &firstBytes, &secondBytes) == FMOD_OK,
+        "lock FMOD-owned copied PCM after source mapping changed");
+    check(firstBytes >= 8 && closeTo(static_cast<float *>(fmodPcm)[1], firstPcm),
+        "CREATESAMPLE retains its own PCM copy after mapped source mutation");
+    FMOD_Sound_Unlock(samples.at(17).sound, fmodPcm, secondPcm, firstBytes, secondBytes);
     ChannelData first; first.sample = 17; first.generation = 10; first.handle = 100; first.volume = 0.25f;
     ensurePaused(first);
     check(first.phase == ChannelData::Phase::Fresh && !first.channel, "pause before first PLAY remains fresh");

@@ -7,7 +7,7 @@ if(!(Get-Command cl.exe -ErrorAction SilentlyContinue)){throw 'MSVC cl.exe is no
 if(!(Get-Command dotnet.exe -ErrorAction SilentlyContinue)){throw '.NET 10 SDK is required.'}
 Push-Location -LiteralPath $repo
 try {
-    & cmd.exe /d /c Compile.bat
+    & cmd.exe /d /s /c ('""{0}""' -f (Join-Path $repo 'Compile.bat'))
     if($LASTEXITCODE){throw 'Native build failed.'}
     & dotnet.exe build (Join-Path $repo 'managed\Asio.ManagedBridge.csproj') -c Release
     if($LASTEXITCODE){throw 'Managed build failed.'}
