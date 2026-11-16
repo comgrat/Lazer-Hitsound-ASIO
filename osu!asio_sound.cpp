@@ -23,6 +23,7 @@
 #include "i18n.h"
 #include "event_wake.h"
 #include "channel_failure.h"
+#include "generation_history.h"
 namespace ui=asio::i18n;
 
 using namespace std;
@@ -465,10 +466,8 @@ static void removeChannel(HCHANNEL channel, unordered_map<HCHANNEL, ChannelData>
     channels.erase(channelIt);
 }
 
-struct SeenGeneration { DWORD value; bool retired; };
-
 static void retireFinishedChannels(unordered_map<HCHANNEL, ChannelData> &channels,
-                                   unordered_map<HCHANNEL, SeenGeneration> &generations)
+                                   GenerationHistory &generations)
 {
     for (auto it = channels.begin(); it != channels.end();)
     {
@@ -477,9 +476,7 @@ static void retireFinishedChannels(unordered_map<HCHANNEL, ChannelData> &channel
         if (data.phase != ChannelData::Phase::Finished) { ++it; continue; }
         // Keep only the small replay guard. Removing it without an epoch or
         // watermark protocol would let late same-generation PLAY allocate again.
-        auto prior = generations.find(it->first);
-        if (prior == generations.end()) generations.emplace(it->first, SeenGeneration{data.generation, true});
-        else if (LONG(data.generation - prior->second.value) >= 0) prior->second = {data.generation, true};
+        generations.retire(it->first, data.generation);
         it = channels.erase(it);
     }
 }
@@ -488,7 +485,7 @@ static DWORD WINAPI mainloop(LPVOID)
 {
     unordered_map<HSAMPLE, SampleData> samples;
     unordered_map<HCHANNEL, ChannelData> channels;
-    unordered_map<HCHANNEL, SeenGeneration> generations;
+    GenerationHistory generations;
     DWORD lastReport = GetTickCount();
 
     while (Work)
@@ -527,19 +524,16 @@ static DWORD WINAPI mainloop(LPVOID)
                 queueLatency.add(asio::qpcMilliseconds() - event.data.channelState.time);
 
             if (event.type >= EVENT_CHANNEL_CREATED && event.type <= EVENT_CHANNEL_REMOVED) {
-                HCHANNEL handle=event.type==EVENT_CHANNEL_CREATED ? event.data.channelCreated.channel : event.data.channelUpdated.channel;
-                auto prior=generations.find(handle);
-                if (prior!=generations.end()) {
-                    // Native generations are monotonic within this backend. A
-                    // removal retires that lifetime even after its map was freed.
-                    LONG delta=LONG(event.generation-prior->second.value);
-                    if(delta<0 || (delta==0 && prior->second.retired)) {
-                        debugPrintf("[FMOD] stale/retired event ignored channel=%lu generation=%lu type=%lu\n",handle,event.generation,event.type);
-                        continue;
-                    }
-                    if(event.type==EVENT_CHANNEL_CREATED && delta==0) continue;
-                    if(delta>0) prior->second={event.generation,false};
-                } else generations.emplace(handle,SeenGeneration{event.generation,false});
+                HCHANNEL handle = event.type == EVENT_CHANNEL_CREATED ? event.data.channelCreated.channel : event.data.channelUpdated.channel;
+                auto tracked = channels.find(handle);
+                bool sameLifetime = tracked != channels.end() && tracked->second.generation == event.generation;
+                bool mayCreate = event.type == EVENT_CHANNEL_CREATED || event.type == EVENT_CHANNEL_REMOVED ||
+                    (event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING);
+                if (!generations.accept(handle, event.generation, event.type == EVENT_CHANNEL_CREATED, sameLifetime, mayCreate))
+                {
+                    debugPrintf("[FMOD] stale/retired event ignored channel=%lu generation=%lu type=%lu\n", handle, event.generation, event.type);
+                    continue;
+                }
             }
 
             if (event.type >= EVENT_CHANNEL_UPDATED && event.type <= EVENT_CHANNEL_REMOVED)
@@ -551,7 +545,7 @@ static DWORD WINAPI mainloop(LPVOID)
                     // A PLAY carries its complete snapshot, so a dropped/delayed
                     // create or update cannot produce a muted or wrong-gain hit.
                     if (event.type != EVENT_CHANNEL_STATE || event.data.channelState.state != CHANNEL_STATE_PLAYING) {
-                        if(event.type==EVENT_CHANNEL_REMOVED) generations[handle]={event.generation,true};
+                        if(event.type==EVENT_CHANNEL_REMOVED) generations.retire(handle, event.generation);
                         continue;
                     }
                     removeChannel(handle, channels);
@@ -585,7 +579,7 @@ static DWORD WINAPI mainloop(LPVOID)
 
             case EVENT_SAMPLE_FREED:
                 for(const auto &entry:channels)
-                    if(entry.second.sample==event.data.sampleFreed.sample) generations[entry.first]={entry.second.generation,true};
+                    if(entry.second.sample==event.data.sampleFreed.sample) generations.retire(entry.first, entry.second.generation);
                 removeSample(event.data.sampleFreed.sample, samples, channels);
                 break;
 
@@ -664,7 +658,7 @@ static DWORD WINAPI mainloop(LPVOID)
             }
 
             case EVENT_CHANNEL_REMOVED:
-                generations[event.data.channelRemoved.channel]={event.generation,true};
+                generations.retire(event.data.channelRemoved.channel, event.generation);
                 removeChannel(event.data.channelRemoved.channel, channels);
                 break;
 

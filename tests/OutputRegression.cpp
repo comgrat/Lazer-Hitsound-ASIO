@@ -305,13 +305,13 @@ static void naturallyFinishedHelpers() {
     ensurePlaying(voice, samples.at(19));
     check(nextVoiceId == 1 && !voice.channel, "late stop followed by PLAY does not revive Finished data");
     unordered_map<HCHANNEL, ChannelData> channels;
-    unordered_map<HCHANNEL, SeenGeneration> generations;
+    GenerationHistory generations;
     channels.emplace(120, voice);
-    generations.emplace(120, SeenGeneration{12, false});
+    generations.accept(120, 12, true);
     ChannelData fresh; fresh.handle=121; fresh.generation=13;
     channels.emplace(121, fresh);
     retireFinishedChannels(channels, generations);
-    check(channels.size()==1 && channels.count(121)==1 && generations.at(120).retired && generations.at(120).value==12,
+    check(channels.size()==1 && channels.count(121)==1 && generations.retired(120) && generations.value(120)==12,
         "finished channel data is reclaimed while fresh channels and replay guards remain");
     FMOD_Sound_Release(samples.at(19).sound);
 }
@@ -506,6 +506,48 @@ static void loopVoiceLoss() {
     FMOD_Sound_Release(samples.at(51).sound);
 }
 
+static void loopHistoryLimit() {
+    section("retired generation history is bounded without replay gaps");
+    GenerationHistory history(4);
+    check(history.accept(700, 1, true), "long-lived channel starts before watermark advances");
+    for (DWORD i = 2; i <= 21; ++i) {
+        require(history.accept(1000 + i, i, true), "new generation accepted before retirement");
+        history.retire(1000 + i, i);
+    }
+    check(history.size() <= 5 && history.retirementQueueSize() <= 4, "retired history is bounded in addition to active lifetimes");
+    check(history.accept(700, 1, false, true), "tracked live channel remains valid below eviction watermark");
+    check(!history.accept(700, 1, false), "untracked stale generation is rejected even with remembered identity");
+    check(!history.accept(1002, 2, false), "evicted old PLAY cannot revive voice");
+    check(history.accept(1002, 22, false), "new lifetime works after tombstone eviction");
+    auto remembered = history.size();
+    check(!history.accept(9000, 23, false, false, false) && history.size() == remembered,
+        "orphan property events do not accumulate live history entries");
+    check(!history.accept(700, 23, false, false, false) && history.value(700) == 1,
+        "orphan future update cannot invalidate an active generation");
+    System system;
+    MappedSample mapped(53, 12, 48000);
+    unordered_map<HSAMPLE, SampleData> samples;
+    require(loadSampleData(mapped.payload, samples), "load sample for post-eviction playback");
+    auto allocations = nextVoiceId;
+    if (history.accept(1002, 2, false))
+    {
+        ChannelData stale;
+        stale.handle = 1002;
+        stale.generation = 2;
+        ensurePlaying(stale, samples.at(53));
+    }
+    check(nextVoiceId == allocations, "evicted stale PLAY allocates no actual FMOD voice");
+    ChannelData fresh;
+    fresh.handle = 1002;
+    fresh.generation = 22;
+    fresh.looping = true;
+    ensurePlaying(fresh, samples.at(53));
+    check(fresh.channel && fresh.playing && nextVoiceId == allocations + 1,
+        "new generation plays an actual FMOD voice after tombstone eviction");
+    if (fresh.channel) FMOD_Channel_Stop(fresh.channel);
+    FMOD_Sound_Release(samples.at(53).sound);
+}
+
 static void failingBackend() {
     section("fault synchronously mutes master, then event-worker shutdown stops loop");
     System system; MappedSample mapped(37, 8, 48000);
@@ -537,7 +579,7 @@ int wmain(int argc, wchar_t **argv) {
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
         parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching();
-        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); failingBackend();
+        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());
         ++failures;
