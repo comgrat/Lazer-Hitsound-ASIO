@@ -458,6 +458,54 @@ static void idleWakeHeartbeat() {
     requestedDebugLog = 0;
 }
 
+static void loopVoiceLoss() {
+    section("loop voice loss is local and preserves other channels");
+    System system;
+    MappedSample mapped(51, 11, 48000);
+    unordered_map<HSAMPLE, SampleData> samples;
+    require(loadSampleData(mapped.payload, samples), "load loop-local sample");
+    ChannelData voice;
+    voice.sample = 51;
+    voice.handle = 800;
+    voice.generation = 80;
+    voice.looping = true;
+    ensurePlaying(voice, samples.at(51));
+    int priority = -1;
+    check(FMOD_Channel_GetPriority(voice.channel, &priority) == FMOD_OK && priority == 0, "loop receives highest FMOD priority");
+    // Force actual FMOD channel stealing after deliberately lowering this
+    // test voice's priority. Production keeps it at zero.
+    FMOD_Channel_SetPriority(voice.channel, 256);
+    std::vector<FMOD_CHANNEL *> competing;
+    bool stolen = false;
+    for (int i = 0; i < 40; ++i)
+    {
+        FMOD_CHANNEL *other = nullptr;
+        FMOD_RESULT result = FMOD_System_PlaySound(fmodSystem, samples.at(51).sound, nullptr, false, &other);
+        if (result == FMOD_OK)
+        {
+            FMOD_Channel_SetMode(other, FMOD_LOOP_NORMAL);
+            FMOD_Channel_SetPriority(other, 0);
+            competing.push_back(other);
+        }
+        FMOD_BOOL active = false;
+        result = FMOD_Channel_IsPlaying(voice.channel, &active);
+        if (result == FMOD_ERR_CHANNEL_STOLEN || result == FMOD_ERR_INVALID_HANDLE)
+        {
+            stolen = true;
+            break;
+        }
+    }
+    require(stolen, "fault injection steals the loop's actual FMOD handle");
+    check(!refreshChannelLifetime(voice) && voice.phase == ChannelData::Phase::Finished,
+        "stolen loop retires without backend failure");
+    check(MyPool->backendReady == 1 && MyPool->failureTail != MyPool->failureHead,
+        "loop loss keeps backend alive and publishes local failover");
+    auto failure = MyPool->channelFailures[MyPool->failureHead];
+    check(failure.channel == 800 && failure.generation == 80, "local failure preserves exact ownership identity");
+    for (auto other : competing) FMOD_Channel_Stop(other);
+    FMOD_Sound_Release(samples.at(51).sound);
+}
+
 static void failingBackend() {
     section("fault synchronously mutes master, then event-worker shutdown stops loop");
     System system; MappedSample mapped(37, 8, 48000);
@@ -489,7 +537,7 @@ int wmain(int argc, wchar_t **argv) {
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
         parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching();
-        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); failingBackend();
+        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); failingBackend();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());
         ++failures;

@@ -487,8 +487,30 @@ struct MonitorSnapshot
     bool playing;
 };
 
+static void drainChannelFailures()
+{
+    if (!MyPool) return;
+    while (MyPool->failureHead != MyPool->failureTail)
+    {
+        LONG head = MyPool->failureHead;
+        auto failure = MyPool->channelFailures[head];
+        MemoryBarrier();
+        InterlockedExchange(&MyPool->failureHead, (head + 1) % CHANNEL_FAILURE_COUNT);
+        EnterCriticalSection(&stateLock);
+        auto current = channelInfoMap.find(failure.channel);
+        if (current != channelInfoMap.end() && current->second.generation == failure.generation &&
+            current->second.routing.suppressNative())
+        {
+            current->second.routing.failover();
+            restoreNativeVolume(failure.channel, current->second);
+        }
+        LeaveCriticalSection(&stateLock);
+    }
+}
+
 static void monitorChannelsOnce(std::vector<MonitorSnapshot> &pending)
 {
+    drainChannelFailures();
     pending.clear();
     EnterCriticalSection(&stateLock);
     for (const auto &entry : channelInfoMap)

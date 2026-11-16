@@ -19,6 +19,7 @@
 #include <thread>
 #include <utility>
 #include "../settings.h"
+#include "../channel_failure.h"
 
 namespace
 {
@@ -1043,6 +1044,30 @@ void test_monitor_ignores_inactive_result_after_same_generation_resume()
     CHECK_EQ(countState(events, CHANNEL_STATE_PLAYING), 1);
 }
 
+void test_loop_failure_restores_only_matching_generation()
+{
+    resetFixture();
+    Fixture fixture = createChannel(true, 0.25f);
+    startExternal(fixture, 0.5f);
+    g_mock.channelHandle += 1;
+    Fixture unaffected = createChannel(true, 0.5f);
+    startExternal(unaffected, 0.75f);
+    CHECK_TRUE(publishChannelFailure(MyPool, fixture.channel, fixture.generation - 1));
+    drainChannelFailures();
+    CHECK_TRUE(channelSnapshot(fixture.channel).suppressNative);
+    CHECK_TRUE(publishChannelFailure(MyPool, fixture.channel, fixture.generation));
+    drainChannelFailures();
+    CHECK_FALSE(channelSnapshot(fixture.channel).suppressNative);
+    CHECK_NEAR(g_mock.nativeVolume.at(fixture.channel), 0.5f, 0.0f);
+    CHECK_TRUE(channelSnapshot(unaffected.channel).suppressNative);
+    CHECK_NEAR(g_mock.nativeVolume.at(unaffected.channel), 0.0f, 0.0f);
+    CHECK_EQ(MyPool->backendReady, 1L);
+    MyPool->failureHead = 0;
+    MyPool->failureTail = CHANNEL_FAILURE_COUNT - 1;
+    CHECK_FALSE(publishChannelFailure(MyPool, fixture.channel, fixture.generation));
+    CHECK_EQ(MyPool->backendReady, 0L);
+}
+
 void test_shared_debug_matches_keyed_settings()
 {
     resetFixture();
@@ -1335,6 +1360,7 @@ int main()
         {"unrelated_queries_bypass_state_lock", test_unrelated_queries_bypass_state_lock},
         {"monitor_revalidates_handle_after_unlocked_query", test_monitor_revalidates_handle_after_unlocked_query},
         {"monitor_ignores_inactive_result_after_same_generation_resume", test_monitor_ignores_inactive_result_after_same_generation_resume},
+        {"loop_failure_restores_only_matching_generation", test_loop_failure_restores_only_matching_generation},
         {"shared_debug_matches_keyed_settings", test_shared_debug_matches_keyed_settings},
         {"wake_and_diagnostic_timestamps", test_wake_and_diagnostic_timestamps},
         {"sample_ack_handle_collision_does_not_false_hit",

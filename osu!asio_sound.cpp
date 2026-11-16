@@ -22,6 +22,7 @@
 #include "async_text_log.h"
 #include "i18n.h"
 #include "event_wake.h"
+#include "channel_failure.h"
 namespace ui=asio::i18n;
 
 using namespace std;
@@ -214,6 +215,21 @@ static void backendFailed(FMOD_RESULT result)
         FMOD_ChannelGroup_SetMute(master, true);
 }
 
+static void finishChannel(ChannelData &data, FMOD_RESULT reason)
+{
+    if (data.phase == ChannelData::Phase::Finished) return;
+    data.channel = nullptr;
+    data.playing = false;
+    data.phase = ChannelData::Phase::Finished;
+    traceVoice("finished", data);
+    if (data.looping)
+    {
+        debugPrintf("[FMOD] loop voice retired channel=%lu generation=%lu reason=%d; requesting native failover\n",
+            data.handle, data.generation, int(reason));
+        if (!publishChannelFailure(MyPool, data.handle, data.generation)) backendFailed(FMOD_ERR_INTERNAL);
+    }
+}
+
 static bool refreshChannelLifetime(ChannelData &data)
 {
     if (!data.channel || data.phase == ChannelData::Phase::Finished) return false;
@@ -224,11 +240,7 @@ static bool refreshChannelLifetime(ChannelData &data)
     FMOD_RESULT result = FMOD_Channel_IsPlaying(data.channel, &active);
     if (result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN || (result == FMOD_OK && !active))
     {
-        data.channel = nullptr;
-        data.playing = false;
-        data.phase = ChannelData::Phase::Finished;
-        traceVoice("finished", data);
-        if (result != FMOD_OK && data.looping) backendFailed(result);
+        finishChannel(data, result);
         return false;
     }
     if (result != FMOD_OK) { backendFailed(result); return false; }
@@ -249,12 +261,10 @@ static bool applyChannelState(ChannelData &channelData)
         result = FMOD_Channel_SetFrequency(channelData.channel, channelData.frequency);
 
     if (result == FMOD_OK) result = FMOD_Channel_SetMode(channelData.channel, channelData.looping ? FMOD_LOOP_NORMAL : FMOD_LOOP_OFF);
+    if (result == FMOD_OK) result = FMOD_Channel_SetPriority(channelData.channel, channelData.looping ? 0 : 128);
     if (result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN)
     {
-        channelData.channel = nullptr; channelData.playing = false;
-        channelData.phase = ChannelData::Phase::Finished;
-        traceVoice("finished",channelData);
-        if (channelData.looping) backendFailed(result);
+        finishChannel(channelData, result);
         return false;
     }
     if (result != FMOD_OK) backendFailed(result);
@@ -390,11 +400,10 @@ static void ensurePlaying(ChannelData &channelData, SampleData &sampleData)
     if (result != FMOD_OK)
     {
         debugPrintf("[FMOD] SetPaused(false) failed: %s\n", FMOD_ErrorString(result));
-        if ((result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN) && !channelData.looping)
+        if (result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN)
         {
-            channelData.channel = nullptr; channelData.playing = false;
-            channelData.phase = ChannelData::Phase::Finished;
-            traceVoice("finished",channelData); return;
+            finishChannel(channelData, result);
+            return;
         }
         backendFailed(result);
         return;
@@ -432,7 +441,10 @@ static void ensurePaused(ChannelData &channelData)
         if (result != FMOD_OK)
         {
             if (result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN)
-                channelData.channel = nullptr;
+            {
+                finishChannel(channelData, result);
+                return;
+            }
             else { backendFailed(result); return; }
         }
     }
