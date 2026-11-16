@@ -110,3 +110,11 @@ config.contract_mode=契約模式：0＝Strict嚴格，1＝Adaptive相容（重�
 contract.verified=已符合審查過的Game/Framework組合，結構、關鍵語意與精確IL檢查均通過。
 contract.adaptive=偵測到新的用戶端實作：結構與關鍵語意檢查通過，精確IL不同。相容模式不代表安全或聽音保證。
 contract.failed=音訊契約驗證失敗，不安裝配接器；詳細資訊請見下方Tier1/Tier2/Tier3記錄。
+settings.encoding=config.ini 必須使用 UTF-8 或 ASCII 編碼，不能使用 UTF-16
+settings.duplicate=設定項目重複：{0}
+settings.integer=設定值必須是整數：{0}
+settings.missing=設定不完整，缺少：{0}
+settings.range=設定值超出支援範圍
+settings.open=無法開啟 config.ini，Windows 錯誤碼={0}
+settings.unreadable=config.ini 過大或無法讀取
+settings.changed=讀取過程中 config.ini 已變更

@@ -106,6 +106,14 @@ internal static class Program
             Check(!uiAllow, "UI sound is not allowed by the zero-volume gate");
             Send(ui, out uint uiEligible, out _);
             Check(uiEligible == 0, "UI channel is not eligible (UIMixer is not GameplayMixer)");
+            // An unrelated UI owner must never have its volume graph inspected.
+            // Its graph getter throws, so this also catches accidental recovery.
+            var uiWithoutGraph = new UiWithoutGraph(17, GetP(ui.Channel, "Mixer")!);
+            Bridge.ChannelAllocated(uiWithoutGraph);
+            int beforeUi = Stub.Contexts;
+            Bridge.ChannelChanging(uiWithoutGraph);
+            Check(Stub.Contexts == beforeUi + 1 && Stub.Eligible == 0 && Stub.Gain == 0,
+                "non-gameplay context bypasses a throwing volume graph");
 
             // Chart-original zero must stay silent while the graph is still valid.
             SetUserVolume(chart, 1.0);
@@ -474,6 +482,14 @@ internal static class Program
     }
 
     sealed record CheckResult(string Name, bool Pass, string? Detail);
+
+    sealed class UiWithoutGraph
+    {
+        public int channel;
+        public object Mixer { get; }
+        public object AggregateVolume => throw new InvalidOperationException("UI graph was evaluated");
+        public UiWithoutGraph(int handle, object mixer) { channel=handle; Mixer=mixer; }
+    }
 
     static class Stub
     {

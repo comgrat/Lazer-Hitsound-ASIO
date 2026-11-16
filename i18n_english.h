@@ -115,5 +115,13 @@ inline std::unordered_map<std::string,std::string> englishCatalog(){return {
     {"contract.verified","Reviewed Game/Framework pair matched; structural, semantic and exact IL checks passed."},
     {"contract.adaptive","New client build detected; structural and critical semantic checks passed, exact IL differs. Compatibility is not a safety or listening guarantee."},
     {"contract.failed","Audio contract validation failed. No adapters will be installed; see the Tier1/Tier2/Tier3 details below."},
+    {"settings.encoding","config.ini must be UTF-8 or ASCII, not UTF-16"},
+    {"settings.duplicate","duplicate config key: {0}"},
+    {"settings.integer","invalid integer: {0}"},
+    {"settings.missing","incomplete config, missing: {0}"},
+    {"settings.range","config value outside supported range"},
+    {"settings.open","cannot open config.ini, Windows error={0}"},
+    {"settings.unreadable","config.ini too large or unreadable"},
+    {"settings.changed","config.ini changed during read"},
 };}
 }

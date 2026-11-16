@@ -78,13 +78,8 @@ int main(int argc, char **argv)
         ~WaitForConsole() { if (interactive) { puts(ui::text("common.close").c_str()); getchar(); } }
     } wait{argc == 1};
     // Save next to this executable even when launched from another cwd.
-    wchar_t executable[MAX_PATH];
-    DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
-    if (!length || length >= MAX_PATH) return 1;
-    wchar_t *slash = wcsrchr(executable, L'\\');
-    if (!slash) return 1;
-    *slash = 0;
-    if (!SetCurrentDirectoryW(executable)) return 1;
+    const auto directory=asio::executableDirectory();
+    if (directory.empty() || !SetCurrentDirectoryW(directory.c_str())) return 1;
     Settings settings = readSettings();
     if (argc == 2 && !strcmp(argv[1], "--show")) { showSettings(settings); return 0; }
     bool listOnly = argc == 2 && !strcmp(argv[1], "--list");
@@ -106,8 +101,9 @@ int main(int argc, char **argv)
         if (FMOD_System_GetDriverInfo(system, i, name, sizeof(name), nullptr, &rate, nullptr, &channels) == FMOD_OK)
             puts(ui::text("config.device_line",{std::to_string(i),name,std::to_string(rate),std::to_string(channels)}).c_str());
     }
-    if (!count) { puts(ui::text("config.no_devices").c_str()); return 1; }
-    if (listOnly) return 0; // Enumeration never initialises/opens the device.
+    if (!count) puts(ui::text("config.no_devices").c_str());
+    if (listOnly) return 0; // An empty enumeration is successful; no device is opened.
+    if (!count) return 1;
     puts(ui::text("config.choose").c_str());
     if (settings.driver < 0 || settings.driver >= count) settings.driver = 0;
     if (!ask(ui::text("config.driver").c_str(), settings.driver, 0, count - 1, settings.driver) ||

@@ -414,11 +414,6 @@ public static class Bridge
                 lock (tokens) { tokens.Remove(__instance); tokens.Add(__instance, token); }
             }
             object? mixer = Property(__instance, "Mixer");
-            if (liveMode)
-            {
-                ObserveOwner(__instance);
-                if (mixer != null && Field(mixer, "manager") is { } manager) ObserveOwner(manager);
-            }
             string? identifier = mixer == null ? null : (string?)Field(mixer, "Identifier");
             bool eligible = identifier == "GameplayMixer";
             if (Trace.Enabled)
@@ -427,9 +422,17 @@ public static class Bridge
                 if (eligible) Interlocked.Increment(ref Trace.GameplayChannels);
             }
             double gain = 0;
-            bool valid = TrySampleGain(Property(__instance, "AggregateVolume")!, out gain, out bool gameplay);
-            if (Trace.Enabled && eligible && (!valid || !gameplay)) Interlocked.Increment(ref Trace.GraphMissing);
-            eligible &= valid && gameplay;
+            if (eligible)
+            {
+                if (liveMode)
+                {
+                    ObserveOwner(__instance);
+                    if (Field(mixer!, "manager") is { } manager) ObserveOwner(manager);
+                }
+                bool valid = TrySampleGain(Property(__instance, "AggregateVolume")!, out gain, out bool gameplay);
+                if (Trace.Enabled && (!valid || !gameplay)) Interlocked.Increment(ref Trace.GraphMissing);
+                eligible = valid && gameplay;
+            }
             uint playbackToken = playbackGeneration is null ? token.Generation : playbackGeneration(channel,token.Generation);
             if(playbackToken==0) return; // Old object may not claim a reused native handle.
             context!(channel, playbackToken, (float)gain, eligible ? 1u : 0u);

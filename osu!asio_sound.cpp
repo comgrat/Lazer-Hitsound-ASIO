@@ -650,26 +650,6 @@ static BOOL WINAPI consoleControl(DWORD type)
     return TRUE;
 }
 
-static bool UpPrivilege()
-{
-    HANDLE hToken;
-    TOKEN_PRIVILEGES tkp;
-    bool result = OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken) != FALSE;
-    if (!result)
-        return false;
-    result = LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &tkp.Privileges[0].Luid) != FALSE;
-    if (!result)
-    {
-        CloseHandle(hToken);
-        return false;
-    }
-    tkp.PrivilegeCount = 1;
-    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-    result = AdjustTokenPrivileges(hToken, FALSE, &tkp, sizeof(TOKEN_PRIVILEGES), NULL, NULL) != FALSE && GetLastError() != ERROR_NOT_ALL_ASSIGNED;
-    CloseHandle(hToken);
-    return result;
-}
-
 static bool DllInject(HANDLE hProcess, const wchar_t *dllname)
 {
     HMODULE kernel32 = GetModuleHandleA("kernel32.dll");
@@ -780,10 +760,8 @@ int main(int argc, char *argv[])
     PeekMessage(&initialMessage, NULL, 0, 0, PM_NOREMOVE);
     SetConsoleCtrlHandler(consoleControl, TRUE);
     // Preserve the original config format, but resolve it beside the executable.
-    char executableDirectory[MAX_PATH];
-    GetModuleFileNameA(NULL, executableDirectory, MAX_PATH);
-    char *directorySlash = strrchr(executableDirectory, '\\');
-    if (directorySlash) { *directorySlash = 0; SetCurrentDirectoryA(executableDirectory); }
+    const auto directory=asio::executableDirectory();
+    if (directory.empty() || !SetCurrentDirectoryW(directory.c_str())) return 1;
     if (!init()) return 1;
     printf("FMOD Studio Low Level API (C) Firelight Technologies Pty Ltd.\n");
 

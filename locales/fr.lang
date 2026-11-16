@@ -110,3 +110,11 @@ config.contract_mode=Mode de contrat : 0 = Strict, 1 = Adaptive (redémarrer le 
 contract.verified=Paire Game/Framework vérifiée : structure, sémantique critique et IL exact conformes.
 contract.adaptive=Nouvelle implémentation détectée : structure et sémantique critique conformes, IL exact différent. Ce mode ne garantit ni la sécurité ni le résultat sonore.
 contract.failed=Échec du contrat audio. Aucun adaptateur ne sera installé ; voir les détails Tier1/Tier2/Tier3 ci-dessous.
+settings.encoding=config.ini doit être encodé en UTF-8 ou ASCII, pas en UTF-16
+settings.duplicate=Clé de configuration en double : {0}
+settings.integer=Valeur entière incorrecte : {0}
+settings.missing=Configuration incomplète, champ manquant : {0}
+settings.range=Valeur de configuration hors de la plage prise en charge
+settings.open=Impossible d’ouvrir config.ini, erreur Windows={0}
+settings.unreadable=config.ini est trop volumineux ou illisible
+settings.changed=config.ini a changé pendant la lecture
