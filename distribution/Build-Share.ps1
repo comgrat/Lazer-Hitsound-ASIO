@@ -1,6 +1,7 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
-    [string]$SourceCommit=$env:ASIO_SOURCE_COMMIT
+    [string]$SourceCommit=$env:ASIO_SOURCE_COMMIT,
+    [string]$PackageVersion='1.1.0'
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
@@ -19,6 +20,7 @@ if($commit -notmatch '^[0-9a-fA-F]{40}$'){
     throw 'A full source commit is required. Use Git, -SourceCommit <40 hex>, or ASIO_SOURCE_COMMIT for a source archive.'
 }
 $commit=$commit.ToLowerInvariant()
+if($PackageVersion -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$'){throw 'PackageVersion must be a semantic version or prerelease.'}
 $inputs=@('AUTHORS.md','THIRD_PARTY_NOTICES.md','LICENSE','licenses\MinHook.txt','licenses\Harmony.txt','licenses\FMOD.txt','docs\USAGE.md','distribution\Start-ASIO.cmd','distribution\Change-Language.cmd','Test-ASIO-Device.cmd','managed\Start-Standalone.ps1','managed\Localization.ps1')
 $inputs+=@('config.exe','osu!asio_sound.exe','osu!asio_sound (select osu exename).exe','asio_backend.exe','osu!asio_sound.dll','fmod.dll','AsioDeviceCheck.exe')|ForEach-Object{'release\'+$_}
 $inputs+=@('Asio.ManagedBridge.dll','Asio.ManagedBridge.deps.json','0Harmony.dll')|ForEach-Object{'managed\bin\Release\net10.0\'+$_}
@@ -79,7 +81,7 @@ $entries = @(Get-ChildItem -LiteralPath $output -Recurse -File | Where-Object { 
     Sort-Object FullName | ForEach-Object {
         [ordered]@{path=$_.FullName.Substring($output.Length+1).Replace('\','/');bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
     })
-[ordered]@{version='1.1.0';contract_default='Adaptive';languages=@('zh-CN','zh-TW','en','fr','es');source_commit=$commit.Trim();client_included=$false;starts_game=$false;copies_client=$false;runtime_required='net10.0';compatibility='核对已审核音频实现契约；已检查Game1026/1110和Framework1019/1030';entry='osu!asio_sound.exe';backend='asio_backend.exe';files=$entries} |
+[ordered]@{version=$PackageVersion;contract_default='Adaptive';languages=@('zh-CN','zh-TW','en','fr','es');source_commit=$commit.Trim();client_included=$false;starts_game=$false;copies_client=$false;runtime_required='net10.0';compatibility='核对已审核音频实现契约；已检查Game1026/1110和Framework1019/1030';entry='osu!asio_sound.exe';backend='asio_backend.exe';files=$entries} |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$output\MANIFEST.json" -Encoding UTF8
 $sums = @($entries | ForEach-Object { $_.sha256+'  '+$_.path })
 $sums += (Get-FileHash -LiteralPath "$output\MANIFEST.json" -Algorithm SHA256).Hash.ToLowerInvariant()+'  MANIFEST.json'

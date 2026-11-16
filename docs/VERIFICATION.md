@@ -16,15 +16,19 @@ Those reports apply to the tested implementation/device/session. The later five-
 | Public UI, language persistence, cwd/renamed path, English fallback | 106 checks, 0 failures | Real EXEs/PowerShell; isolated target and expected timeout |
 | Managed localization and client metadata | 30 checks, 0 failures | No game startup or hardware output |
 | Old/new real volume graphs | 43 checks per implementation, 0 failures | Explicit native stub |
-| FMOD output/state regression | 231 checks, 0 failures | Real FMOD NOSOUND; includes legacy/Strict/invalid mode parsing |
+| FMOD output/state regression | 232 checks, 0 failures | Real FMOD NOSOUND; includes legacy/Strict/invalid mode parsing |
 | Native restart/allocation handshake | 28 checks, 0 failures | Production detours with mock BASS |
 | Digital impulse, volume and blocked diagnostic sink | 3540 checks, 0 failures | Synthetic FMOD silent-output capture |
 | Portable release structure/dependencies/configuration | 134 checks, 0 failures | No game or hardware ASIO initialization |
 | Tiered synthetic/configuration/session ABI | 33 checks, 0 failures | Production evaluator and per-PID mode/status mapping |
+| Managed graph cache and traversal buffers | 11 checks, 0 failures | Mutable sources, re-entry, parallel calls, weak collection and cycles |
+| Native hook/ACK regression | 215 checks, 0 failures | Cached ACK slots reject generation/handle reuse; mock BASS |
 | Real-client contract mutations (v1.1.0 baseline) | 77 checks per reference family, 0 failures | Metadata/IL only; source assemblies unchanged |
 | Unicode executable paths and invalid configuration | 32 cases, 0 failures | Japanese/emoji/spaces; six invalid inputs in five languages |
 | Empty ASIO enumeration | empty=0, enumeration error=1, device initializations=0 | Real config entry with deterministic FMOD stubs |
 | Export preflight and archive provenance | Passed | Missing commit/input leaves no output; environment fallback and checksums verified |
+
+The local v1.1.1-rc.1 candidate adds ACK slot and finished-channel cleanup assertions plus an 11-check managed graph probe. On the same synthetic graph/runtime with warmup, allocation measured 832 bytes/call with the prior bridge versus 200 bytes/call with cached metadata/traversal buffers. This measurement is limited to that fixture; it is not a game or acoustic latency result. This candidate is held locally pending user testing and has not been pushed/published.
 
 The maintenance checks add a ninth native regression and a throwing UI graph fixture. The original v1.1.0 contract mutation results remain identified as that release's baseline; this change does not alter its 80/41 contract catalog. No new hardware listening measurement was performed.
 

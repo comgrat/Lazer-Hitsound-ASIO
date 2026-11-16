@@ -30,9 +30,13 @@ Lease tuning can then be measured against the audible-stale-loop budget. Queue e
 
 ## Remaining performance and architecture work
 
-ACK lookup already hashes by handle with linear open addressing; misses/full tables can still scan 4096 entries. Bounded probes require an insertion/deletion policy and collision/full-table tests in both processes. Benchmark before trading correct acknowledgements for false misses.
+Sample publication still hashes by handle with linear open addressing, but each sample now retains its ACK slot index. The hit/start path reads one slot and validates its full handle, requested generation and ready generation. Collisions, deleting another colliding sample and slot reuse cannot bypass these checks. Publication/backend loading may still scan 4096 entries; changing that capacity/insertion policy is separate from removing the scan on every hit.
 
-Graph allocation/reflection caching, monitor lock duration and polling frequency, and retired-state memory limits are valid follow-ups. They need profiling and lifetime/invalidation rules. A larger monitor interval can delay short-sample completion; blindly pruning generation state can replay stale events.
+Ended channel payloads are removed from the backend scan table after recording their retired generation. Fresh/paused lifetimes remain tracked. Small generation tombstones remain until the backend session ends; they are not blindly expired, so late same-generation PLAY cannot revive a finished or removed voice.
+
+Managed field/property metadata and typed weak-reference readers are cached with weak type keys. Graph traversal reuses per-thread path/source buffers, handles nested re-entry separately, clears strong source references after each call and still snapshots current bindings under their existing lock. No gain value or mutable graph edge is cached across calls. A synthetic two-level graph measured 832 bytes/call before versus 200 bytes/call after warmup on the same runtime; this is not a real-game allocation or latency measurement.
+
+Monitor lock duration/polling frequency and tombstone memory bounds remain follow-ups requiring profiling and lifetime rules. A larger monitor interval can delay short-sample completion; pruning generation state without an epoch/watermark can replay stale events.
 
 The public path uses an EXE launcher, a PowerShell watcher, a backend and an injected native/managed adapter. PowerShell policy bypass and injection can trigger security-product policy. No measured false-positive rate is available. A native watcher and signed distribution can reduce packaging friction, but injection remains an architectural dependency. Do not instruct users to disable antivirus protections.
 
