@@ -179,10 +179,13 @@ static void parser() {
     section("keyed parser: UTF-8 BOM, reorder, comments, no scanning of unrelated numbers");
     asio::Settings settings; std::string error;
     check(asio::parseSettings(ini(25, true), settings, error) && settings.buffer == 16 && settings.driver == 0 &&
-        settings.rate == 48000 && settings.volume == 25 && settings.debug == 0, "BOM/reordered five keys parsed by key");
+        settings.rate == 48000 && settings.volume == 25 && settings.debug == 0 && settings.contractMode == 1, "BOM/reordered legacy five keys default to Adaptive");
+    check(asio::parseSettings(ini(25, true) + "Contract Mode = 0\n", settings, error) && settings.contractMode == 0,
+        "optional Contract Mode selects Strict");
     const std::vector<std::string> invalid = {
         "[Config]\nBuffer Size=16\nASIO Driver ID=0\nSample Rate=48000\nDebug Log=0\n# Output Volume missing; 25 100 1000\n",
         ini(101), ini(-1), ini(25) + "Output Volume = 50\n",
+        ini(25) + "Contract Mode = 2\n", ini(25) + "Contract Mode = 0\nContract Mode = 1\n",
         "[Config]\nBuffer Size=16\nASIO Driver ID=0\nSample Rate=48000\nOutput Volume=25abc\nDebug Log=0\n",
         "[Config]\nBuffer Size=16\nASIO Driver ID=0\nSample Rate=48000\nOutput Volume=\nDebug Log=0\n",
         std::string("[\0C\0o\0n\0f\0i\0g\0]", 15)

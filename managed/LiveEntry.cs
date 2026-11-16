@@ -15,8 +15,12 @@ public static class LiveEntry
             Bridge.detailedPlayback = File.Exists(Path.Combine(root,"playback-trace.enabled"));
             Bridge.LogWriter = TextWriter.Synchronized(new StreamWriter(
                 Path.Combine(root, "logs", $"managed-{Environment.ProcessId}.log"), append: true) { AutoFlush = true });
+            using var session=ContractSession.Open(Environment.ProcessId);
+            Bridge.Mode=session?.Mode??ContractSettings.Read(root);
             Bridge.Log("[ASIO attach] "+UiText.Get("managed.attaching",Environment.ProcessId));
-            return Bridge.InstallLive() ? 0 : 3;
+            bool installed=Bridge.InstallLive();
+            session?.Publish(installed?Bridge.ContractStatus:AudioContract.MatchStatus.Failed);
+            return installed ? 0 : 3;
         }
         catch (Exception exception)
         {

@@ -106,3 +106,8 @@ device.left=左声道（Playback 1）……
 device.right=右声道（Playback 2）……
 device.play_failed=播放调用失败：{0}
 device.done=播放调用已完成，设备已释放。请自行确认能否听见；工具无法判断声音是否到达耳机。
+
+config.contract_mode=契约模式：0＝Strict严格，1＝Adaptive兼容（重启游戏生效）
+contract.verified=已命中审查过的Game/Framework组合，结构、关键语义和精确IL检查均通过。
+contract.adaptive=检测到新客户端实现：结构和关键语义检查通过，精确IL不同。兼容模式不等于安全或听测保证。
+contract.failed=音频契约校验失败，不安装适配；详情见下方Tier1/Tier2/Tier3记录。

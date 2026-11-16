@@ -224,7 +224,7 @@ internal static class Program
             context.Unload();
         }
         Check(!rejected, "AudioContract.Validate rejects the IL-mutated test copy", error);
-        Check(error.Contains("Audio implementation contract mismatch") && error.Contains(SkinnableSound),
+        Check(error.Contains("[Contract Failed]") && error.Contains("Tier2") && error.Contains(SkinnableSound),
             "rejection identifies the audio contract and SkinnableSound", error);
         // Deliberately do not resolve or invoke get_PlayWhenZeroVolume; reading IL does not run the getter.
         string sourceAfter = Sha256(gamePath);
@@ -233,12 +233,13 @@ internal static class Program
         string missingPath = MakeStubAssembly(Path.Combine(work, "synthetic", "osu.Framework.dll"),
             FrameworkAssembly, "osu.Framework.Audio.AudioAdjustments");
         string missingHash = Sha256(missingPath);
-        var missingContext = new InstallLoadContext(Path.GetDirectoryName(missingPath)!);
+        var missingContext = new InstallLoadContext(install, (FrameworkAssembly, missingPath));
         try
         {
             Assembly missing = LoadBytes(missingContext, missingPath);
+            _ = LoadBytes(missingContext, gamePath);
             (bool missingAccepted, string missingError) = TryValidate(missing);
-            Check(!missingAccepted && missingError.Contains("Required audio type is missing"),
+            Check(!missingAccepted && missingError.Contains("Tier1"),
                 "AudioContract rejects an osu.Framework layout with a missing audio type", missingError);
         }
         finally
@@ -249,12 +250,13 @@ internal static class Program
         string stubPath = MakeStubAssembly(Path.Combine(work, "synthetic", "osu.Game.dll"),
             GameAssembly, SkinnableSound, "osu.Game.Skinning.PoolableSkinnableSample", "osu.Game.Rulesets.UI.DrawableRuleset");
         string stubHash = Sha256(stubPath);
-        var stubContext = new InstallLoadContext(Path.GetDirectoryName(stubPath)!);
+        var stubContext = new InstallLoadContext(install, (GameAssembly, stubPath));
         try
         {
+            _ = LoadBytes(stubContext, Path.Combine(install, FrameworkAssembly + ".dll"));
             Assembly stub = LoadBytes(stubContext, stubPath);
             (bool stubAccepted, string stubError) = TryValidate(stub);
-            Check(!stubAccepted && stubError.Contains("Audio implementation contract mismatch"),
+            Check(!stubAccepted && stubError.Contains("Tier1"),
                 "AudioContract rejects a synthetic osu.Game layout with no reviewed members", stubError);
         }
         finally
@@ -393,6 +395,8 @@ internal static class Program
     {
         try
         {
+            if(args.Length>0&&args[0]=="--tiered-self-test")return TieredRegression.Run(Array.Empty<string>());
+            if(args.Length>0&&args[0]=="--tiered-client-test")return TieredRegression.Run(args.Skip(1).ToArray());
             return Run(args);
         }
         catch (Exception exception)

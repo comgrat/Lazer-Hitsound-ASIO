@@ -11,6 +11,9 @@
   <ItemGroup>
     <Compile Include="StartupHook.cs" />
     <Compile Include="AudioContract.cs" />
+    <Compile Include="TieredAudioContract.cs" />
+    <Compile Include="ContractSettings.cs" />
+    <Compile Include="ContractSession.cs" />
     <Compile Include="LiveEntry.cs" />
     <Compile Include="Localization.cs" />
     <EmbeddedResource Include="..\locales\en.lang" LogicalName="Asio.English.lang" />

@@ -64,7 +64,7 @@ try {
         $help=Invoke-TestProcess (Join-Path $caseRoot 'osu!asio_sound.exe') @('--help') $decoy '' ($code+'-help')
         Check ($help.exit -eq 0 -and $help.stdout.Contains($catalog['launcher.usage'])) ($code+' localized launcher text')
         $show=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--show') $decoy '' ($code+'-config')
-        Check ($show.exit -eq 0 -and $show.stdout.Contains('Buffer Size = 16') -and $show.stdout.Contains('Output Volume = 50') -and !$show.stdout.Contains('999')) ($code+' five-field config remains language/cwd independent')
+        Check ($show.exit -eq 0 -and $show.stdout.Contains('Buffer Size = 16') -and $show.stdout.Contains('Output Volume = 50') -and $show.stdout.Contains('Contract Mode = 1') -and !$show.stdout.Contains('999')) ($code+' config including Adaptive remains language/cwd independent')
         $list=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--list') $decoy '' ($code+'-list')
         Check ($list.exit -eq 0 -and $list.stdout.Contains($catalog['config.devices'])) ($code+' localized device enumeration without opening device')
         $backend=Invoke-TestProcess (Join-Path $caseRoot 'asio_backend.exe') @() $decoy '' ($code+'-backend-guard')

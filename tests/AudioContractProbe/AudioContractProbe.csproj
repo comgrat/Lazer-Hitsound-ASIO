@@ -10,6 +10,10 @@
   <ItemGroup>
     <!-- Compile the reviewed production class itself; do not duplicate it. -->
     <Compile Include="..\..\managed\AudioContract.cs" Link="AudioContract.cs" />
+    <Compile Include="..\..\managed\TieredAudioContract.cs" Link="TieredAudioContract.cs" />
+    <Compile Include="..\..\managed\ContractSettings.cs" Link="ContractSettings.cs" />
+    <Compile Include="..\..\managed\ContractSession.cs" Link="ContractSession.cs" />
+    <PackageReference Include="Mono.Cecil" Version="0.11.6" />
     <Compile Include="..\..\managed\Localization.cs" Link="Localization.cs" />
     <EmbeddedResource Include="..\..\locales\en.lang" LogicalName="Asio.English.lang" Link="en.lang" />
     <EmbeddedResource Include="..\..\managed\audio-contract.json" LogicalName="Asio.AudioContract.json" Link="audio-contract.json" />

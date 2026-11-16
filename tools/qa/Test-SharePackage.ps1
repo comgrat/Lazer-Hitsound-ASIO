@@ -449,7 +449,7 @@ if ($manifestPath) {
 }
 
 # ---------------------------------------------------------------------------
-# Configuration file: five unchanged fields, numeric, no local device name
+# Configuration file: five original fields plus optional numeric Contract Mode
 # ---------------------------------------------------------------------------
 $configPath = $required['config.ini']
 $configValues = @{}
@@ -468,9 +468,10 @@ if ($configPath) {
         }
     }
     $expectedKeys = @('Buffer Size', 'ASIO Driver ID', 'Sample Rate', 'Output Volume', 'Debug Log')
-    Add-Check -Name 'config.ini has exactly five fields' -Ok ($entries.Count -eq 5) -Detail ("found {0} key/value lines" -f $entries.Count)
+    if(@($entries|Where-Object {$_.Key -eq 'Contract Mode'}).Count){$expectedKeys+='Contract Mode'}
+    Add-Check -Name 'config.ini has the supported audio fields' -Ok ($entries.Count -eq $expectedKeys.Count) -Detail ("found {0} key/value lines" -f $entries.Count)
     $actualOrder = @($entries | ForEach-Object { $_.Key })
-    Add-Check -Name 'config.ini preserves five-field order' -Ok (($actualOrder -join '|') -eq ($expectedKeys -join '|')) -Detail (($actualOrder -join '|'))
+    Add-Check -Name 'config.ini preserves supported field order' -Ok (($actualOrder -join '|') -eq ($expectedKeys -join '|')) -Detail (($actualOrder -join '|'))
     foreach ($expectedKey in $expectedKeys) {
         $entry = $entries | Where-Object { $_.Key -ieq $expectedKey } | Select-Object -First 1
         if (-not $entry) {
@@ -495,6 +496,10 @@ if ($configPath) {
     }
     if ($configValues.ContainsKey('Debug Log')) {
         Add-Check -Name 'config debug flag 0/1' -Ok (@(0, 1) -contains [int]$configValues['Debug Log']) -Detail $configValues['Debug Log']
+    }
+    if ($configValues.ContainsKey('Contract Mode')) {
+        Add-Check -Name 'config contract mode 0/1' -Ok (@(0, 1) -contains [int]$configValues['Contract Mode']) -Detail $configValues['Contract Mode']
+        Add-Check -Name 'clean package defaults to Adaptive' -Ok ([int]$configValues['Contract Mode'] -eq 1) -Detail $configValues['Contract Mode']
     }
     if ($configValues.ContainsKey('Debug Log') -and [int]$configValues['Debug Log'] -ne 0) {
         Add-Warn -Name 'config default Debug Log is 0' -Detail ("Debug Log={0}" -f $configValues['Debug Log'])
@@ -889,18 +894,18 @@ if ($hasShowFlag -and $hasListFlag -and (Test-Path -LiteralPath $relocatedConfig
     Add-Check -Name 'config.exe --show exits 0' -Ok ($null -ne $showResult -and $showResult.ExitCode -eq 0 -and -not $showResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $showResult.ExitCode, $showResult.TimedOut, $showResult.DurationMilliseconds)
     if ($null -ne $showResult) {
         Add-Check -Name 'config.exe --show did not time out' -Ok (-not $showResult.TimedOut) -Detail ("{0} ms" -f $showResult.DurationMilliseconds)
-        Add-Check -Name 'config.exe --show prints five config fields' -Ok ($showResult.Stdout -match '(?m)^\[Config\]') -Detail '[Config]'
-        if ($configValues.Count -eq 5) {
+        Add-Check -Name 'config.exe --show prints supported config fields' -Ok ($showResult.Stdout -match '(?m)^\[Config\]') -Detail '[Config]'
+        if ($configValues.Count -eq $expectedKeys.Count) {
             $showValueMissing = @(Test-ConfigValueLines -Text $showResult.Stdout -Values $configValues)
-            Add-Check -Name 'config.exe --show reads exe-side config values' -Ok ($showValueMissing.Count -eq 0) -Detail ($(if ($showValueMissing.Count) { 'missing: ' + ($showValueMissing -join ', ') } else { 'all five values match package config.ini' }))
+            Add-Check -Name 'config.exe --show reads exe-side config values' -Ok ($showValueMissing.Count -eq 0) -Detail ($(if ($showValueMissing.Count) { 'missing: ' + ($showValueMissing -join ', ') } else { 'all supported values match package config.ini' }))
         }
         else {
             Add-Check -Name 'config.exe --show reads exe-side config values' -Ok $false -Detail 'package config.ini missing or incomplete; value check not possible'
         }
         $showExtraLines = @($showResult.Stdout -split "`r?`n" | Where-Object {
-                $_ -and $_ -notmatch '^\[Config\]$' -and $_ -notmatch '^(Buffer Size|ASIO Driver ID|Sample Rate|Output Volume|Debug Log)\s*='
+                $_ -and $_ -notmatch '^\[Config\]$' -and $_ -notmatch '^(Buffer Size|ASIO Driver ID|Sample Rate|Output Volume|Debug Log|Contract Mode)\s*='
             })
-        Add-Check -Name 'config.exe --show prints only the five config fields' -Ok ($showExtraLines.Count -eq 0) -Detail ($(if ($showExtraLines.Count) { ($showExtraLines | Select-Object -First 4) -join ' | ' } else { 'no device name or extra output' }))
+        Add-Check -Name 'config.exe --show prints only the supported config fields' -Ok ($showExtraLines.Count -eq 0) -Detail ($(if ($showExtraLines.Count) { ($showExtraLines | Select-Object -First 4) -join ' | ' } else { 'no device name or extra output' }))
         $decoyHits = New-Object System.Collections.ArrayList
         foreach ($key in @($decoyMap.Keys)) {
             if ($configValues.ContainsKey($key) -and [string]$configValues[$key] -eq [string]$decoyMap[$key]) { continue }

@@ -32,4 +32,6 @@ foreach($case in $cases){
     if($LASTEXITCODE){$failed+=$case.name}
 }
 if($failed.Count){throw ('Failed regressions: '+($failed -join ', '))}
-Write-Output ('PASS '+$cases.Count+' core regression programs; hardware output and game startup were not used.')
+& dotnet.exe run --project (Join-Path $repo 'tests\AudioContractProbe\AudioContractProbe.csproj') -c Release -- --tiered-self-test
+if($LASTEXITCODE){throw 'Tiered contract self-test failed.'}
+Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed tiered-contract self-test; hardware output and game startup were not used.')

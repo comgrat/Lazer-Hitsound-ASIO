@@ -111,5 +111,9 @@ inline std::unordered_map<std::string,std::string> englishCatalog(){return {
     {"device.right","Right channel (Playback 2)..."},
     {"device.play_failed","Playback call failed: {0}"},
     {"device.done","Playback calls completed and the device was released. Confirm audibility yourself; this tool cannot detect whether sound reached your headphones."},
+    {"config.contract_mode","Contract Mode: 0 = Strict, 1 = Adaptive (restart the game to apply)"},
+    {"contract.verified","Reviewed Game/Framework pair matched; structural, semantic and exact IL checks passed."},
+    {"contract.adaptive","New client build detected; structural and critical semantic checks passed, exact IL differs. Compatibility is not a safety or listening guarantee."},
+    {"contract.failed","Audio contract validation failed. No adapters will be installed; see the Tier1/Tier2/Tier3 details below."},
 };}
 }

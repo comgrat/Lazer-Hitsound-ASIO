@@ -105,3 +105,8 @@ device.left=左聲道（Playback 1）...
 device.right=右聲道（Playback 2）...
 device.play_failed=播放呼叫失敗：{0}
 device.done=播放呼叫已完成，裝置已釋放。請自行確認是否聽見聲音；此工具無法偵測聲音是否送達您的耳機。
+
+config.contract_mode=契約模式：0＝Strict嚴格，1＝Adaptive相容（重開遊戲生效）
+contract.verified=已符合審查過的Game/Framework組合，結構、關鍵語意與精確IL檢查均通過。
+contract.adaptive=偵測到新的用戶端實作：結構與關鍵語意檢查通過，精確IL不同。相容模式不代表安全或聽音保證。
+contract.failed=音訊契約驗證失敗，不安裝配接器；詳細資訊請見下方Tier1/Tier2/Tier3記錄。

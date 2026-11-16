@@ -105,3 +105,8 @@ device.left=Canal gauche (Playback 1)...
 device.right=Canal droit (Playback 2)...
 device.play_failed=L’appel de lecture a échoué : {0}
 device.done=Les appels de lecture sont terminés et le périphérique a été libéré. Vérifiez vous-même l’audibilité ; cet outil ne peut pas détecter si le son a atteint votre casque.
+
+config.contract_mode=Mode de contrat : 0 = Strict, 1 = Adaptive (redémarrer le jeu)
+contract.verified=Paire Game/Framework vérifiée : structure, sémantique critique et IL exact conformes.
+contract.adaptive=Nouvelle implémentation détectée : structure et sémantique critique conformes, IL exact différent. Ce mode ne garantit ni la sécurité ni le résultat sonore.
+contract.failed=Échec du contrat audio. Aucun adaptateur ne sera installé ; voir les détails Tier1/Tier2/Tier3 ci-dessous.

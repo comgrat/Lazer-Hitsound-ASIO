@@ -9,7 +9,7 @@
 
 namespace asio {
 struct Settings {
-    int buffer = 16, driver = 0, rate = 48000, volume = 50, debug = 0;
+    int buffer = 16, driver = 0, rate = 48000, volume = 50, debug = 0, contractMode = 1;
 };
 inline std::string trimSetting(const std::string &value) {
     size_t begin=value.find_first_not_of(" \t\r\n");
@@ -20,9 +20,9 @@ inline bool parseSettings(std::string text, Settings &result, std::string &error
     if(text.compare(0,3,"\xef\xbb\xbf")==0) text.erase(0,3);
     if(text.find('\0')!=std::string::npos) { error="config.ini must be UTF-8 or ASCII, not UTF-16"; return false; }
     Settings next;
-    std::array<const char*,5> names={"Buffer Size","ASIO Driver ID","Sample Rate","Output Volume","Debug Log"};
-    std::array<int*,5> values={&next.buffer,&next.driver,&next.rate,&next.volume,&next.debug};
-    std::array<bool,5> seen={};
+    std::array<const char*,6> names={"Buffer Size","ASIO Driver ID","Sample Rate","Output Volume","Debug Log","Contract Mode"};
+    std::array<int*,6> values={&next.buffer,&next.driver,&next.rate,&next.volume,&next.debug,&next.contractMode};
+    std::array<bool,6> seen={};
     std::istringstream input(text);std::string line;
     while(std::getline(input,line)) {
         line=trimSetting(line);
@@ -38,9 +38,9 @@ inline bool parseSettings(std::string text, Settings &result, std::string &error
         if(errno||end==value.c_str()||*end||number<INT_MIN||number>INT_MAX){error="invalid integer: "+key;return false;}
         *values[index]=int(number);seen[index]=true;
     }
-    for(size_t i=0;i<seen.size();++i)if(!seen[i]){error="incomplete config, missing: "+std::string(names[i]);return false;}
+    for(size_t i=0;i<5;++i)if(!seen[i]){error="incomplete config, missing: "+std::string(names[i]);return false;}
     if(next.buffer<1||next.buffer>8192||next.driver<0||next.rate<0||next.rate>768000||
-       (next.rate!=0&&next.rate<8000)||next.volume<0||next.volume>100||next.debug<0||next.debug>1){error="config value outside supported range";return false;}
+       (next.rate!=0&&next.rate<8000)||next.volume<0||next.volume>100||next.debug<0||next.debug>1||next.contractMode<0||next.contractMode>1){error="config value outside supported range";return false;}
     result=next;error.clear();return true;
 }
 inline bool loadSettings(const std::wstring &path, Settings &result, std::string &error, std::string *snapshot=nullptr) {

@@ -12,14 +12,16 @@ Those reports apply to the tested implementation/device/session. The later five-
 
 | Scope | Observed result | Boundary |
 | --- | --- | --- |
-| Five locale catalogs | 107 keys each; 633 key/placeholder/reference checks | Text and formatting correctness |
-| Public UI, language persistence, cwd/renamed path, English fallback | 100 checks, 0 failures | Real EXEs/PowerShell; isolated target and expected timeout |
+| Five locale catalogs | 111 keys each; 654 key/placeholder/reference checks | Text and formatting correctness |
+| Public UI, language persistence, cwd/renamed path, English fallback | 104 checks, 0 failures | Real EXEs/PowerShell; isolated target and expected timeout |
 | Managed localization and client metadata | 30 checks, 0 failures | No game startup or hardware output |
 | Old/new real volume graphs | 42 checks per implementation, 0 failures | Explicit native stub |
-| FMOD output/state regression | 228 checks, 0 failures | Real FMOD NOSOUND |
+| FMOD output/state regression | 231 checks, 0 failures | Real FMOD NOSOUND; includes legacy/Strict/invalid mode parsing |
 | Native restart/allocation handshake | 28 checks, 0 failures | Production detours with mock BASS |
 | Digital impulse, volume and blocked diagnostic sink | 3540 checks, 0 failures | Synthetic FMOD silent-output capture |
-| Portable release structure/dependencies/configuration | 130 checks, 0 failures | No game or hardware ASIO initialization |
+| Portable release structure/dependencies/configuration | 134 checks, 0 failures | No game or hardware ASIO initialization |
+| Tiered synthetic/configuration/session ABI | 33 checks, 0 failures | Production evaluator and per-PID mode/status mapping |
+| Real-client contract mutations | 77 checks per reference family, 0 failures | Metadata/IL only; source assemblies unchanged |
 
 Check counts include setup/resource assertions and render-loop assertions; they are not counts of independent real-world scenarios. The relevant fixture sources are retained under `tests/`, with a portable core runner at `tools/qa/Test-Core.ps1`.
 
@@ -31,6 +33,14 @@ The implementation retains legitimate layered sounds. It does not remove events 
 
 ## Compatibility policy
 
-The bridge accepts reviewed audio implementation layouts and normalized method contracts, rather than trusting only a displayed game version. Reviewed references are .NET10 Game2026.1026/1110 and Framework2026.1019/1030. Unknown implementations are rejected in favor of native output. If the in-game Hitsound setting is0, native fallback may itself be silent.
+Version 1.1.0 uses structural signatures, critical semantic projections and exact reviewed Game/Framework pairs. Adaptive is the default; Strict additionally requires the exact reviewed pair. Neither mode skips Tier1/2. See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md). Reviewed references remain .NET10 Game2026.1026/1110 and Framework2026.1019/1030. A failed Tier1/2 check refuses attachment in either mode. In-game Hitsound 0 can make native fallback silent.
 
 The software buffer size is a configuration, not a latency measurement. No blanket 16-sample stability or 32/64/128 acoustic comparison claim is made.
+
+## v1.1.0 contract regressions
+
+The two reference client families each passed 77 assertions covering exact matching in both modes, harmless NOP/unrelated-helper drift, signature/field/critical-call/arithmetic changes, mixer creation and GameplayMixer identifier changes, interface removal, and BASS enum changes. Tests modify temporary copies only and never invoke mutated audio methods. The original assemblies remain read-only. The default build also runs synthetic tiered decisions and the frozen-mode/session ABI tests.
+
+A separate install probe loads the real audio assemblies in isolated processes: Exact/Strict and harmless-drift/Adaptive install the expected Harmony patches; drift/Strict and a broken anchor are rejected with no patches left on the inspected targets. These tests do not launch the game or open ASIO hardware. This release has no new physical listening/latency claim.
+
+Candidate extraction was tested to leave the embedded source catalog unchanged. Explicit append added exactly one reviewed pair, retained the structural/semantic policy and wrote a recovery copy. Structural/semantic breaks are not promoted. Runtime reads the rebuilt embedded catalog, not a mutable loose JSON.

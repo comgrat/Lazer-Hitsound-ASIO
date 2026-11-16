@@ -13,7 +13,7 @@ namespace ui=asio::i18n;
 
 struct Settings
 {
-    int buffer = 16, driver = 0, rate = 48000, volume = 50, debug = 0;
+    int buffer = 16, driver = 0, rate = 48000, volume = 50, debug = 0, contractMode = 1;
 };
 
 static bool parseNumber(const char *text, int &value)
@@ -36,7 +36,7 @@ static Settings readSettings()
     std::wstring path=asio::executableSibling(L"config.ini");
     if (asio::loadSettings(path, parsed, error)) {
         settings.buffer=parsed.buffer; settings.driver=parsed.driver; settings.rate=parsed.rate;
-        settings.volume=parsed.volume; settings.debug=parsed.debug;
+        settings.volume=parsed.volume; settings.debug=parsed.debug; settings.contractMode=parsed.contractMode;
     } else if (GetFileAttributesW(path.c_str())!=INVALID_FILE_ATTRIBUTES) {
         fprintf(stderr,"%s\n",ui::text("config.invalid",{error}).c_str());
     }
@@ -45,8 +45,8 @@ static Settings readSettings()
 
 static void showSettings(const Settings &settings)
 {
-    printf("[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\n",
-           settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug);
+    printf("[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\nContract Mode = %d\n",
+           settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug, settings.contractMode);
 }
 
 static bool ask(const char *prompt, int current, int minimum, int maximum, int &result)
@@ -114,7 +114,8 @@ int main(int argc, char **argv)
         !ask(ui::text("config.buffer").c_str(), settings.buffer, 1, 8192, settings.buffer) ||
         !ask(ui::text("config.rate").c_str(), settings.rate, 0, 768000, settings.rate) ||
         !ask(ui::text("config.volume").c_str(), settings.volume, 0, 100, settings.volume) ||
-        !ask(ui::text("config.debug").c_str(), settings.debug, 0, 1, settings.debug)) return 2;
+        !ask(ui::text("config.debug").c_str(), settings.debug, 0, 1, settings.debug) ||
+        !ask(ui::text("config.contract_mode").c_str(), settings.contractMode, 0, 1, settings.contractMode)) return 2;
     puts(ui::text("config.checking").c_str());
     if (!settings.rate)
     {
@@ -134,8 +135,8 @@ int main(int argc, char **argv)
     release.system = nullptr;
     FILE *file = fopen("config.ini.tmp", "w");
     if (!file) { puts(ui::text("config.write_failed").c_str()); return 1; }
-    int written = fprintf(file, "[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\n",
-                          settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug);
+    int written = fprintf(file, "[Config]\nBuffer Size = %d\nASIO Driver ID = %d\nSample Rate = %d\nOutput Volume = %d\nDebug Log = %d\nContract Mode = %d\n",
+                          settings.buffer, settings.driver, settings.rate, settings.volume, settings.debug, settings.contractMode);
     bool saved = fclose(file) == 0 && written > 0;
     if (!saved || !MoveFileExW(L"config.ini.tmp", L"config.ini", MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
     { puts(ui::text("config.save_failed").c_str()); return 1; }

@@ -15,7 +15,7 @@ function Read-AsioAttachStatus([hashtable]$State) {
         $line=$State.Pending.Substring(0,$newline)
         $State.Pending=$State.Pending.Substring($newline+1)
         if ($line -match '^\[ASIO_READY\]') { Write-Output $line.TrimEnd("`r"); $State.Ready=$true }
-        elseif ($line -match '\[ASIO config\]') { Write-Output $line.TrimEnd("`r") }
+        elseif ($line -match '^\[(ASIO config|Verified Contract|Compat/Adaptive)\]') { Write-Output $line.TrimEnd("`r") }
     }
 }
 if ($SelectProcess) { $ProcessName = Read-Host (Get-AsioText 'watcher.process_prompt'); if (!$ProcessName) { $ProcessName='osu!' } }

@@ -15,7 +15,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1
 ```
 
-This builds the native configuration tool, launcher, backend and hook; the .NET bridge; and the optional stereo device checker. It also runs eight regression executables. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
+This builds the native configuration tool, launcher, backend and hook; the .NET bridge; and the optional stereo device checker. It also runs eight native regression executables and the managed tiered-contract self-test. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
 
 Export an untouched portable folder and ZIP:
 
@@ -23,7 +23,7 @@ Export an untouched portable folder and ZIP:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\distribution\Build-Share.ps1 -OutputDirectory .\artifacts\LazerASIO-Tachyon1110
 ```
 
-The exporter resets the five audio fields to generic defaults, omits language/device preferences and logs, preserves UTF-8 BOM for Windows PowerShell scripts, and writes file hashes. Use a new directory if the target contains runtime data. Do not package your used tool folder.
+The exporter resets the original five audio fields plus `Contract Mode = 1` (Adaptive) to generic defaults, omits language/device preferences and logs, preserves UTF-8 BOM for Windows PowerShell scripts, and writes file hashes. Use a new directory if the target contains runtime data. Do not package your used tool folder.
 
 Optional package checks:
 
@@ -51,3 +51,12 @@ dotnet run --project .\tests\LiveGraphResearch -c Release -- C:\path\to\compatib
 ```
 
 These fixtures load the game's audio assemblies and create real volume graphs without starting the game. They cannot establish audible correctness or account safety.
+
+## Maintain audio compatibility
+
+See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md) for the schema, mode boundaries, candidate extraction and explicit reviewed-pair promotion. The runtime uses an embedded catalog; rebuild the managed bridge after updating it. The metadata-only mutation fixture uses Mono.Cecil 0.11.6 from NuGet, a test-only dependency not shipped in the portable ZIP.
+
+```powershell
+.\tools\contract\Update-AudioContract.ps1 -ClientDirectory C:\path\to\client
+dotnet run --project .\tests\AudioContractProbe -c Release -- --tiered-client-test C:\path\to\client .\artifacts\contract-mutations
+```

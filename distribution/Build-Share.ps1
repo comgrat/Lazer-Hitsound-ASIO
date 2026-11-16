@@ -52,14 +52,14 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Start-ASIO.cmd') -Destination "
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README-Multilingual.md') -Destination "$output\README.md" -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Change-Language.cmd') -Destination "$output\Change-Language.cmd" -Force
 Copy-Item -LiteralPath "$repo\Test-ASIO-Device.cmd" -Destination "$output\Test-ASIO-Device.cmd" -Force
-[IO.File]::WriteAllText("$output\config.ini", "[Config]`r`nBuffer Size = 16`r`nASIO Driver ID = 0`r`nSample Rate = 48000`r`nOutput Volume = 50`r`nDebug Log = 0`r`n", [Text.Encoding]::ASCII)
+[IO.File]::WriteAllText("$output\config.ini", "[Config]`r`nBuffer Size = 16`r`nASIO Driver ID = 0`r`nSample Rate = 48000`r`nOutput Volume = 50`r`nDebug Log = 0`r`nContract Mode = 1`r`n", [Text.Encoding]::ASCII)
 $commit = & git -C $repo rev-parse HEAD
 if ($LASTEXITCODE -ne 0) { throw '无法记录源码提交。' }
 $entries = @(Get-ChildItem -LiteralPath $output -Recurse -File | Where-Object { $_.Name -notin @('MANIFEST.json','SHA256SUMS.txt') } |
     Sort-Object FullName | ForEach-Object {
         [ordered]@{path=$_.FullName.Substring($output.Length+1).Replace('\','/');bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
     })
-[ordered]@{version='2026.11.15-share.5-multilingual';languages=@('zh-CN','zh-TW','en','fr','es');source_commit=$commit.Trim();client_included=$false;starts_game=$false;copies_client=$false;runtime_required='net10.0';compatibility='核对已审核音频实现契约；已检查Game1026/1110和Framework1019/1030';entry='osu!asio_sound.exe';backend='asio_backend.exe';files=$entries} |
+[ordered]@{version='1.1.0';contract_default='Adaptive';languages=@('zh-CN','zh-TW','en','fr','es');source_commit=$commit.Trim();client_included=$false;starts_game=$false;copies_client=$false;runtime_required='net10.0';compatibility='核对已审核音频实现契约；已检查Game1026/1110和Framework1019/1030';entry='osu!asio_sound.exe';backend='asio_backend.exe';files=$entries} |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$output\MANIFEST.json" -Encoding UTF8
 $sums = @($entries | ForEach-Object { $_.sha256+'  '+$_.path })
 $sums += (Get-FileHash -LiteralPath "$output\MANIFEST.json" -Algorithm SHA256).Hash.ToLowerInvariant()+'  MANIFEST.json'

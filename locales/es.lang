@@ -105,3 +105,8 @@ device.left=Canal izquierdo (Playback 1)...
 device.right=Canal derecho (Playback 2)...
 device.play_failed=La llamada de reproducción falló: {0}
 device.done=Las llamadas de reproducción finalizaron y el dispositivo se liberó. Comprueba por tu cuenta si se oye; esta herramienta no puede detectar si el sonido llegó a tus auriculares.
+
+config.contract_mode=Modo de contrato: 0 = Strict, 1 = Adaptive (reiniciar el juego)
+contract.verified=Par Game/Framework revisado: estructura, semántica crítica e IL exacto coinciden.
+contract.adaptive=Nueva implementación detectada: estructura y semántica crítica válidas, IL exacto distinto. Este modo no garantiza seguridad ni resultados de escucha.
+contract.failed=Falló la validación del contrato de audio. No se instalarán adaptadores; consulta los detalles Tier1/Tier2/Tier3.

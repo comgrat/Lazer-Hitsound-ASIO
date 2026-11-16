@@ -913,7 +913,7 @@ int main(int argc, char *argv[])
     }
 
     AsioLiveMapping live;
-    if (liveAttach && !live.create(PID)) {
+    if (liveAttach && !live.create(PID,startupSettings.contractMode)) {
         fprintf(stderr,"%s\n",ui::text("backend.session_failed").c_str());
         CloseHandle(hProcess); closeBackend(); return 1;
     }
@@ -944,6 +944,9 @@ int main(int argc, char *argv[])
             fprintf(stderr,"%s\n",ui::text("backend.adapter_failed",{errorCode}).c_str());
             CloseHandle(hProcess); closeBackend(); return 1;
         }
+        LONG contract=InterlockedCompareExchange(&live.state->contractStatus,0,0);
+        if(contract!=1&&contract!=2){fprintf(stderr,"%s\n",ui::text("contract.failed").c_str());CloseHandle(hProcess);closeBackend();return 1;}
+        printf("%s %s\n",contract==1?"[Verified Contract]":"[Compat/Adaptive]",ui::text(contract==1?"contract.verified":"contract.adaptive").c_str());
         printf("[ASIO_READY] %s\n",ui::text("backend.ready",{std::to_string(PID)}).c_str());
     }
 

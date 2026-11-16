@@ -6,7 +6,7 @@ using System.Text;
 using System.Text.Json;
 
 // Compare the audio implementation, not an application's unrelated build ID.
-public static class AudioContract
+public static partial class AudioContract
 {
     static readonly BindingFlags declared = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
     static readonly Dictionary<short, OpCode> opcodes = typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static)
@@ -120,6 +120,12 @@ public static class AudioContract
         foreach (Type nested in type.GetNestedTypes(declared).OrderBy(t => t.FullName, StringComparer.Ordinal)) lines.Add("nested:" + TypeCode(nested));
         return string.Join("\n", lines);
     }
+    public static Snapshot InspectTypes(Assembly assembly,IEnumerable<string> roots)
+    {
+        var result=new SortedDictionary<string,string>(StringComparer.Ordinal);
+        foreach(string root in roots)result.Add(root,Hash(TypeCode(assembly.GetType(root,true)!)));
+        return new(assembly.GetName().Name!,assembly.GetName().Version!.ToString(),assembly.ManifestModule.ModuleVersionId,result);
+    }
     public static Snapshot Inspect(Assembly assembly)
     {
         string name = assembly.GetName().Name!;
@@ -135,18 +141,16 @@ public static class AudioContract
         }
         return new(name, assembly.GetName().Version!.ToString(), assembly.ManifestModule.ModuleVersionId, result);
     }
+    // Legacy diagnostic API stays strict. Runtime installation validates the
+    // complete Game/Framework pair with its explicitly selected mode.
     public static void Validate(Assembly assembly)
     {
-        using Stream resource = typeof(AudioContract).Assembly.GetManifestResourceStream("Asio.AudioContract.json")
-            ?? throw new InvalidOperationException(UiText.Get("contract.missing"));
-        var expected = JsonSerializer.Deserialize<Snapshot[]>(resource)!;
-        Snapshot actual = Inspect(assembly);
-        if (!expected.Any(candidate => candidate.Assembly == actual.Assembly &&
-            candidate.Types.Count == actual.Types.Count && candidate.Types.All(p => actual.Types.TryGetValue(p.Key, out string? hash) && hash == p.Value)))
-        {
-            var baseline = expected.FirstOrDefault(p => p.Assembly == actual.Assembly);
-            string changed = string.Join(", ", actual.Types.Where(p => baseline == null || !baseline.Types.TryGetValue(p.Key, out string? hash) || hash != p.Value).Select(p => p.Key));
-            throw new NotSupportedException(UiText.Get("contract.mismatch",actual.Assembly,actual.Version,changed));
-        }
+        var context=System.Runtime.Loader.AssemblyLoadContext.GetLoadContext(assembly)!;
+        string other=assembly.GetName().Name=="osu.Framework"?"osu.Game":"osu.Framework";
+        var partner=context.Assemblies.SingleOrDefault(a=>a.GetName().Name==other)
+            ?? throw new NotSupportedException("Tier1: both Game and Framework must be loaded before validation.");
+        if(assembly.GetName().Name=="osu.Framework")ValidatePair(assembly,partner);
+        else if(assembly.GetName().Name=="osu.Game")ValidatePair(partner,assembly);
+        else throw new NotSupportedException("Tier1: unexpected assembly "+assembly.GetName().Name);
     }
 }

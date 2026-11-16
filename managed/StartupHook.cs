@@ -38,6 +38,24 @@ public static class Bridge
     static readonly Harmony harmony = new("osu.asio.offline.volume.v2");
     static readonly object installationLock = new();
     static readonly HashSet<Assembly> installed = new();
+    public static AudioContract.ContractMode Mode { get; set; }=AudioContract.ContractMode.Adaptive;
+    static bool contractValidated;
+    static bool validatingContract;
+    public static AudioContract.MatchStatus ContractStatus { get; private set; }=AudioContract.MatchStatus.Failed;
+    static void ValidatePair(Assembly[] audio)
+    {
+        var result=AudioContract.Evaluate(audio.Single(a=>a.GetName().Name=="osu.Framework"),audio.Single(a=>a.GetName().Name=="osu.Game"),Mode);
+        if(!result.Accepted){
+            Log("[Contract Failed] "+UiText.Get("contract.failed"));
+            foreach(string error in result.StructuralErrors)Log("[Contract Tier1] "+error);
+            foreach(string error in result.SemanticErrors)Log("[Contract Tier2] "+error);
+            foreach(string error in result.ExactDifferences)Log("[Contract Tier3] "+error);
+            AudioContract.RequireAccepted(result);
+        }
+        Log((result.Status==AudioContract.MatchStatus.ExactMatch?"[Verified Contract] ":"[Compat/Adaptive] ")+UiText.Get(result.Status==AudioContract.MatchStatus.ExactMatch?"contract.verified":"contract.adaptive"));
+        ContractStatus=result.Status;
+        contractValidated=true;
+    }
     sealed record VolumeNode(object Aggregate, IList Sources);
     sealed record Marker(bool Gameplay);
     sealed record ChannelToken(uint Handle, uint Generation);
@@ -132,8 +150,16 @@ public static class Bridge
         Trace.Start();
         if (AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name is "osu.Framework" or "osu.Game"))
         { Disable(new InvalidOperationException(UiText.Get("managed.early_only"))); return; }
-        AppDomain.CurrentDomain.AssemblyLoad += (_, e) => InstallAssembly(e.LoadedAssembly);
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies()) InstallAssembly(assembly);
+        Mode=ContractSettings.Read(Path.GetDirectoryName(Path.GetDirectoryName(typeof(Bridge).Assembly.Location))!);
+        AppDomain.CurrentDomain.AssemblyLoad += (_, _) => {
+            lock(installationLock){
+                if(contractValidated||validatingContract||failed)return;
+                var audio=AppDomain.CurrentDomain.GetAssemblies().Where(a=>a.GetName().Name is "osu.Framework" or "osu.Game").ToArray();
+                if(audio.Length!=2)return;
+                validatingContract=true;
+                try{ValidatePair(audio);foreach(var assembly in audio)InstallAssembly(assembly);}catch(Exception error){Disable(error);}finally{validatingContract=false;}
+            }
+        };
     }
 
     public static bool InstallLive()
@@ -151,11 +177,10 @@ public static class Bridge
             Thread.Sleep(25);
         } while (Environment.TickCount64 < deadline);
         if (audio.Length != 2) throw new NotSupportedException(UiText.Get("managed.timeout"));
-        foreach (var assembly in audio) AudioContract.Validate(assembly);
+        ValidatePair(audio);
         liveMode = true;
         if (detailedPlayback) playbackTraceTimer ??= new Timer(_ => FlushPlaybackTrace(), null, 250, 250);
         Trace.Start();
-        AppDomain.CurrentDomain.AssemblyLoad += (_, e) => InstallAssembly(e.LoadedAssembly);
         foreach (var assembly in audio) InstallAssembly(assembly);
         Log("[ASIO adapter] "+UiText.Get(failed ? "managed.failed" : "managed.ready"));
         return !failed;
@@ -176,7 +201,7 @@ public static class Bridge
             {
                 // Native-library/resource updates need not change audio code.
                 // Accept reviewed implementation contracts; reject changed IL/layout.
-                AudioContract.Validate(assembly);
+                if(!contractValidated)throw new InvalidOperationException("Pair contract must be validated before any patches are installed.");
                 if (name == "osu.Framework")
                 {
                     var adjustments = assembly.GetType("osu.Framework.Audio.AudioAdjustments", true)!;
