@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- MSVC developer shells export Platform=x64. Managed assemblies run in
+         the existing x64 process but use a stable AnyCPU build/output layout.
+         An explicit MSBuild -p:Platform still takes precedence. -->
+    <Platform>AnyCPU</Platform>
+  </PropertyGroup>
+</Project>

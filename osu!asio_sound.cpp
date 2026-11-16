@@ -204,9 +204,30 @@ static void backendFailed(FMOD_RESULT result)
         FMOD_ChannelGroup_SetMute(master, true);
 }
 
+static bool refreshChannelLifetime(ChannelData &data)
+{
+    if (!data.channel || data.phase == ChannelData::Phase::Finished) return false;
+    // Newly allocated voices are paused before their first PLAY. A later
+    // inactive voice can still have a valid FMOD handle and accept setters.
+    if (data.phase == ChannelData::Phase::Fresh) return true;
+    FMOD_BOOL active = false;
+    FMOD_RESULT result = FMOD_Channel_IsPlaying(data.channel, &active);
+    if (result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN || (result == FMOD_OK && !active))
+    {
+        data.channel = nullptr;
+        data.playing = false;
+        data.phase = ChannelData::Phase::Finished;
+        traceVoice("finished", data);
+        if (result != FMOD_OK && data.looping) backendFailed(result);
+        return false;
+    }
+    if (result != FMOD_OK) { backendFailed(result); return false; }
+    return true;
+}
+
 static bool applyChannelState(ChannelData &channelData)
 {
-    if (channelData.channel == nullptr)
+    if (!refreshChannelLifetime(channelData))
         return false;
 
     // Sample gain and independent ASIO gain live at distinct levels. The
@@ -329,6 +350,7 @@ static void ensurePlaying(ChannelData &channelData, SampleData &sampleData)
 {
     if (sampleData.sound == nullptr || channelData.phase == ChannelData::Phase::Finished)
         return;
+    if (channelData.channel && !refreshChannelLifetime(channelData)) return;
     if (channelData.phase == ChannelData::Phase::Playing) {
         traceVoice("duplicate_play_ignored",channelData);
         return;
@@ -393,6 +415,7 @@ static void ensurePaused(ChannelData &channelData)
     }
     if (channelData.channel != nullptr)
     {
+        if (!refreshChannelLifetime(channelData)) return;
         FMOD_RESULT result = FMOD_Channel_SetPaused(channelData.channel, true);
         if (result != FMOD_OK)
         {
@@ -614,12 +637,7 @@ static DWORD WINAPI mainloop(LPVOID)
         for (auto &entry : channels) {
             ChannelData &data=entry.second;
             if (!data.channel || data.phase!=ChannelData::Phase::Playing) continue;
-            FMOD_BOOL active=false;
-            FMOD_RESULT result=FMOD_Channel_IsPlaying(data.channel,&active);
-            if (result==FMOD_ERR_INVALID_HANDLE || result==FMOD_ERR_CHANNEL_STOLEN || (result==FMOD_OK && !active)) {
-                data.channel=nullptr; data.playing=false; data.phase=ChannelData::Phase::Finished;
-                traceVoice("finished",data);
-            } else if (result!=FMOD_OK) backendFailed(result);
+            refreshChannelLifetime(data);
         }
         if (!processedEvent)
             Sleep(1);
