@@ -18,7 +18,7 @@ This package does not include the game, account data or beatmaps. `Start-ASIO.cm
 
 游戏内Hitsound=0%仍可有ASIO击打声。调节ASIO音量请修改同目录 `config.ini` 的 `Output Volume`（0～100），保存后约0.5秒生效；0会静音ASIO。驱动、buffer和采样率变更需重启游戏。BGM与UI音效保留原生，谱面增益和声像保留。`language.ini` 单独保存语言，不改变六项音频配置。
 
-本包不包含游戏客户端、账号数据或谱面。`managed`、`locales` 与DLL/后端都是运行依赖，请保留。可自由改最外层文件夹名。仅检查了.NET10的Game2026.1026/1110、Framework2026.1019/1030音频实现族；未知实现可能被拒绝。工具会向游戏进程注入Hook并安装运行时适配，请自行了解客户端规则。软件buffer时长不是实测端到端延迟。
+本包不包含游戏客户端、账号数据或谱面。`managed`、`locales` 与DLL/后端都是运行依赖，请保留。可自由改最外层文件夹名。已审查的是.NET10的Game2026.1026/1110、Framework2026.1019/1030音频实现族；精确契约按音频实现哈希比对，音频实现未变的更新版本同样显示 `[Verified Contract]`，未知实现可能被拒绝。`Debug Log = 1` 记录5秒状态与错误；逐事件追踪需另在工具目录放置空文件 `playback-trace.enabled`。工具会向游戏进程注入Hook并安装运行时适配，请自行了解客户端规则。软件buffer时长不是实测端到端延迟。
 
 `Test-ASIO-Device.cmd` 是可选左右声道试听，先退出游戏和其他ASIO程序并降低监听音量。运行生成的日志、`.asio-device-configured` 与 `language.ini` 属于本机状态；分享请使用原始干净ZIP。
 
@@ -34,7 +34,7 @@ This package does not include the game, account data or beatmaps. `Start-ASIO.cm
 
 遊戲Hitsound=0%時ASIO仍可播放。ASIO音量由同一資料夾 `config.ini` 的 `Output Volume`（0～100）控制，儲存後約0.5秒更新；0會靜音。驅動程式、緩衝區及取樣率變更需要重開遊戲。BGM與UI音效維持原生，保留譜面增益與聲像。語言偏好另存於 `language.ini`。
 
-請保留 `managed`、`locales` 及必要DLL/後端；最外層資料夾可改名。僅檢查過.NET10的Game2026.1026/1110及Framework2026.1019/1030音訊實作族，未知實作可能被拒絕。工具會向遊戲注入Hook及安裝執行階段配接器，請自行了解用戶端規則。軟體緩衝區時長並非實測端對端延遲。
+請保留 `managed`、`locales` 及必要DLL/後端；最外層資料夾可改名。已審查的是.NET10的Game2026.1026/1110及Framework2026.1019/1030音訊實作族；精確契約依音訊實作雜湊比對，音訊實作未變的較新版本同樣顯示 `[Verified Contract]`，未知實作可能被拒絕。`Debug Log = 1` 記錄5秒狀態與錯誤；逐事件追蹤需另在工具資料夾放置空檔案 `playback-trace.enabled`。工具會向遊戲注入Hook及安裝執行階段配接器，請自行了解用戶端規則。軟體緩衝區時長並非實測端對端延遲。
 
 `Test-ASIO-Device.cmd` 可選擇性測試左右聲道；請先退出遊戲與其他ASIO程式並調低監聽音量。分享時使用原始ZIP，勿夾帶執行記錄、裝置標記或語言偏好。
 
@@ -50,7 +50,7 @@ This package does not include the game, account data or beatmaps. `Start-ASIO.cm
 
 The game Hitsound slider at 0% still allows ASIO hitsounds. Set `Output Volume` (0–100) in the tool-side `config.ini` to control ASIO; saving updates it in about 0.5 seconds, and 0 mutes it. Driver/buffer/sample-rate changes require a game restart. Music and UI sounds retain native output; beatmap gain and pan are preserved. Language is saved separately in `language.ini`, keeping all six audio fields.
 
-Keep `managed`, `locales`, the DLLs and the backend. The outer folder may be renamed. Reviewed audio implementations: .NET10 Game2026.1026/1110 and Framework2026.1019/1030; unknown implementations may be rejected. This tool injects a hook and installs runtime adapters into the game process; understand the client's rules before use. Software buffer duration is not measured end-to-end latency.
+Keep `managed`, `locales`, the DLLs and the backend. The outer folder may be renamed. Reviewed audio implementation families: .NET10 Game2026.1026/1110 and Framework2026.1019/1030. The exact contract hashes the audio implementation, so a later build with unchanged audio code still shows `[Verified Contract]`; unknown implementations may be rejected. `Debug Log = 1` records five-second status and errors; per-event tracing additionally needs an empty `playback-trace.enabled` file beside the tool. This tool injects a hook and installs runtime adapters into the game process; understand the client's rules before use. Software buffer duration is not measured end-to-end latency.
 
 `Test-ASIO-Device.cmd` optionally plays left/right test tones. Close the game and other ASIO applications and lower your listening volume first. Share the original clean ZIP, without generated logs, device markers or language preferences.
 
@@ -66,7 +66,7 @@ Keep `managed`, `locales`, the DLLs and the backend. The outer folder may be ren
 
 Le curseur Hitsound du jeu à 0 % permet toujours les sons ASIO. Modifiez `Output Volume` (0–100) dans le `config.ini` de l’outil : la valeur est appliquée environ 0,5 seconde après l’enregistrement, et 0 coupe ces sons. Un changement de pilote, tampon ou fréquence nécessite un redémarrage du jeu. La musique et les sons d’interface restent sur la sortie native ; gain de beatmap et panoramique sont conservés. La langue est enregistrée séparément dans `language.ini`.
 
-Conservez `managed`, `locales`, les DLL et le backend. Le dossier extérieur peut être renommé. Implémentations vérifiées : .NET10 Game2026.1026/1110 et Framework2026.1019/1030 ; une implémentation inconnue peut être refusée. L’outil injecte un hook et installe des adaptateurs à l’exécution : renseignez-vous sur les règles du client. La durée du tampon logiciel n’est pas une mesure de latence de bout en bout.
+Conservez `managed`, `locales`, les DLL et le backend. Le dossier extérieur peut être renommé. Familles d’implémentation audio vérifiées : .NET10 Game2026.1026/1110 et Framework2026.1019/1030. Le contrat exact compare l’empreinte de l’implémentation audio : une version plus récente dont le code audio est inchangé affiche aussi `[Verified Contract]` ; une implémentation inconnue peut être refusée. `Debug Log = 1` enregistre l’état toutes les cinq secondes et les erreurs ; le suivi événement par événement exige en plus un fichier vide `playback-trace.enabled` à côté de l’outil. L’outil injecte un hook et installe des adaptateurs à l’exécution : renseignez-vous sur les règles du client. La durée du tampon logiciel n’est pas une mesure de latence de bout en bout.
 
 `Test-ASIO-Device.cmd` permet un test gauche/droite facultatif. Fermez le jeu et les autres applications ASIO, puis baissez le volume d’écoute. Pour partager, utilisez le ZIP propre d’origine, sans journaux, marqueurs de périphérique ni préférences de langue.
 
@@ -82,6 +82,6 @@ Conservez `managed`, `locales`, les DLL et le backend. Le dossier extérieur peu
 
 El control Hitsound del juego al 0% permite que ASIO siga sonando. Ajusta `Output Volume` (0–100) en el `config.ini` de la herramienta: se actualiza aproximadamente 0,5 segundos después de guardar y 0 silencia los sonidos ASIO. Cambiar el controlador, el búfer o la frecuencia requiere reiniciar el juego. La música y los sonidos de interfaz mantienen la salida nativa; se conservan la ganancia del mapa y el panorama. El idioma se guarda por separado en `language.ini`.
 
-Conserva `managed`, `locales`, las DLL y el backend. Puedes renombrar la carpeta exterior. Implementaciones revisadas: .NET10 Game2026.1026/1110 y Framework2026.1019/1030; una implementación desconocida puede rechazarse. La herramienta inyecta un hook e instala adaptadores en tiempo de ejecución: conoce las reglas del cliente antes de usarla. La duración del búfer de software no es una latencia de extremo a extremo medida.
+Conserva `managed`, `locales`, las DLL y el backend. Puedes renombrar la carpeta exterior. Familias de implementación de audio revisadas: .NET10 Game2026.1026/1110 y Framework2026.1019/1030. El contrato exacto compara la huella de la implementación de audio: una versión posterior con el código de audio sin cambios también muestra `[Verified Contract]`; una implementación desconocida puede rechazarse. `Debug Log = 1` registra el estado cada cinco segundos y los errores; el seguimiento por evento requiere además un archivo vacío `playback-trace.enabled` junto a la herramienta. La herramienta inyecta un hook e instala adaptadores en tiempo de ejecución: conoce las reglas del cliente antes de usarla. La duración del búfer de software no es una latencia de extremo a extremo medida.
 
 `Test-ASIO-Device.cmd` reproduce tonos izquierdo/derecho opcionales. Cierra antes el juego y otras aplicaciones ASIO y baja el volumen de escucha. Comparte el ZIP limpio original, sin registros, marcadores de dispositivo ni preferencias de idioma.

@@ -96,3 +96,7 @@ The final candidate build passed from an unrelated working directory with `NoDef
 New cases cover the named auto-reset wake event, idle heartbeat/burst draining and QPC collection; reordered/commented debug configuration; query passthrough under a held lock; handle release/reuse and same-generation pause/resume during unlocked monitoring; FMOD-owned PCM after source mapping mutation; actual stolen loop handles and generation-specific native restoration, unrelated-channel preservation and a full failure ring; bounded retired history, eviction replay rejection and legal new-generation playback. The failure messages printed by negative fixtures are expected assertions, not build failures.
 
 The protocol magic changed once to `0x41534933`. The hook/backend pair must be delivered together. Retired generations, the 250 ms lease DSP, native restoration and Tier1/2 remain enforced. Full epoch recovery and one-shot natural-tail deferral are design only; see [MAINTENANCE.md](MAINTENANCE.md).
+
+## Exact contract matching and client versions
+
+The exact (Tier3) contract compares normalized hashes of the bridged audio implementation types, not assembly version numbers or MVIDs. A user session on Game 2026.1115 / Framework 2026.1114 matched the reviewed `game2026.1110-framework2026.1030` audio implementation and displayed `[Verified Contract]`. This shows a later build with an unchanged audio implementation; it is not a general claim about future clients.
