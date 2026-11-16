@@ -229,13 +229,8 @@ public static class Bridge
         }
     }
 
-    static object? Field(object instance, string name)
-    {
-        for (Type? type = instance.GetType(); type != null; type = type.BaseType)
-            if (type.GetField(name, fields) is FieldInfo field) return field.GetValue(instance);
-        return null;
-    }
-    static object? Property(object instance, string name) => instance.GetType().GetProperty(name, fields)?.GetValue(instance);
+    static object? Field(object instance, string name) => AudioReflection.Field(instance, name);
+    static object? Property(object instance, string name) => AudioReflection.Property(instance, name);
     static void Disable(Exception exception)
     {
         if (!failed) Log("[ASIO adapter] "+UiText.Get("managed.native",exception.GetType().Name,exception.Message));
@@ -329,42 +324,65 @@ public static class Bridge
                 ReferenceEquals(Property(owner, "AggregateVolume"), result)) ObserveOwner(owner);
     }
 
+    sealed class GainScratch
+    {
+        public bool InUse;
+        public readonly HashSet<object> Path = new(ReferenceEqualityComparer.Instance);
+        public readonly List<object>?[] Sources = new List<object>?[65];
+        public void Clear()
+        {
+            Path.Clear();
+            foreach (var sources in Sources) sources?.Clear();
+        }
+    }
+    [ThreadStatic] static GainScratch? gainScratch;
+
     // Walk original sources, not bound-copy results divided by a user gain.
     public static bool TrySampleGain(object volume, out double gain, out bool gameplay)
     {
         gameplay = false;
+        var scratch = gainScratch ??= new GainScratch();
+        // A getter can re-enter the adapter on the same thread. Keep the outer
+        // traversal intact; only unusual nested calls allocate another buffer.
+        if (scratch.InUse) scratch = new GainScratch();
+        scratch.InUse = true;
         try
         {
             bool found = false;
-            gain = Evaluate(volume, new HashSet<object>(ReferenceEqualityComparer.Instance), ref found, 0);
+            gain = Evaluate(volume, scratch, ref found, 0);
             gameplay = found;
             return !failed && double.IsFinite(gain) && gain >= 0 && gain <= 1;
         }
         catch (Exception exception) { gain = 0; Disable(exception); return false; }
+        finally { scratch.Clear(); scratch.InUse = false; }
     }
-    static double Evaluate(object volume, HashSet<object> path, ref bool gameplay, int depth)
+    static double Evaluate(object volume, GainScratch scratch, ref bool gameplay, int depth)
     {
-        if (depth > 64 || !path.Add(volume)) throw new InvalidOperationException(UiText.Get("managed.graph"));
+        if (depth > 64 || !scratch.Path.Add(volume)) throw new InvalidOperationException(UiText.Get("managed.graph"));
         try
         {
             if (exclusions.TryGetValue(volume, out var marker)) { gameplay |= marker.Gameplay; return 1; }
             if (liveMode) RecoverAggregateOwner(volume);
             if (!nodes.TryGetValue(volume, out var node)) return Convert.ToDouble(Property(volume, "Value"));
-            List<object> sources = new();
-            lock (node.Sources)
+            var sources = scratch.Sources[depth] ??= new List<object>();
+            sources.Clear();
+            try
             {
-                foreach (object pair in node.Sources)
+                lock (node.Sources)
                 {
-                    object weak = Property(pair, "WeakReference")!;
-                    object?[] args = { null };
-                    if ((bool)weak.GetType().GetMethod("TryGetTarget")!.Invoke(weak, args)!) sources.Add(args[0]!);
+                    foreach (object pair in node.Sources)
+                    {
+                        object weak = Property(pair, "WeakReference")!;
+                        if (AudioReflection.WeakTarget(weak) is { } target) sources.Add(target);
+                    }
                 }
+                double result = Convert.ToDouble(Field(node.Aggregate, "initialValue"));
+                foreach (object source in sources) result *= Evaluate(source, scratch, ref gameplay, depth + 1);
+                return result;
             }
-            double result = Convert.ToDouble(Field(node.Aggregate, "initialValue"));
-            foreach (object source in sources) result *= Evaluate(source, path, ref gameplay, depth + 1);
-            return result;
+            finally { sources.Clear(); }
         }
-        finally { path.Remove(volume); }
+        finally { scratch.Path.Remove(volume); }
     }
     static bool NativeReady()
     {

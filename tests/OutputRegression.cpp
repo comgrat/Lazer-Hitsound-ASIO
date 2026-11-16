@@ -282,6 +282,15 @@ static void naturallyFinishedHelpers() {
     FMOD_Channel_Stop(old); // An already-invalid handle must not allocate another voice.
     ensurePlaying(voice, samples.at(19));
     check(nextVoiceId == 1 && !voice.channel, "late stop followed by PLAY does not revive Finished data");
+    unordered_map<HCHANNEL, ChannelData> channels;
+    unordered_map<HCHANNEL, SeenGeneration> generations;
+    channels.emplace(120, voice);
+    generations.emplace(120, SeenGeneration{12, false});
+    ChannelData fresh; fresh.handle=121; fresh.generation=13;
+    channels.emplace(121, fresh);
+    retireFinishedChannels(channels, generations);
+    check(channels.size()==1 && channels.count(121)==1 && generations.at(120).retired && generations.at(120).value==12,
+        "finished channel data is reclaimed while fresh channels and replay guards remain");
     FMOD_Sound_Release(samples.at(19).sound);
 }
 

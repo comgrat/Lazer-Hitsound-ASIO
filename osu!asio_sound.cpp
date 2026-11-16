@@ -441,11 +441,29 @@ static void removeChannel(HCHANNEL channel, unordered_map<HCHANNEL, ChannelData>
     channels.erase(channelIt);
 }
 
+struct SeenGeneration { DWORD value; bool retired; };
+
+static void retireFinishedChannels(unordered_map<HCHANNEL, ChannelData> &channels,
+                                   unordered_map<HCHANNEL, SeenGeneration> &generations)
+{
+    for (auto it = channels.begin(); it != channels.end();)
+    {
+        auto &data = it->second;
+        if (data.channel && data.phase == ChannelData::Phase::Playing) refreshChannelLifetime(data);
+        if (data.phase != ChannelData::Phase::Finished) { ++it; continue; }
+        // Keep only the small replay guard. Removing it without an epoch or
+        // watermark protocol would let late same-generation PLAY allocate again.
+        auto prior = generations.find(it->first);
+        if (prior == generations.end()) generations.emplace(it->first, SeenGeneration{data.generation, true});
+        else if (LONG(data.generation - prior->second.value) >= 0) prior->second = {data.generation, true};
+        it = channels.erase(it);
+    }
+}
+
 static DWORD WINAPI mainloop(LPVOID)
 {
     unordered_map<HSAMPLE, SampleData> samples;
     unordered_map<HCHANNEL, ChannelData> channels;
-    struct SeenGeneration { DWORD value; bool retired; };
     unordered_map<HCHANNEL, SeenGeneration> generations;
     DWORD lastReport = GetTickCount();
 
@@ -634,11 +652,7 @@ static DWORD WINAPI mainloop(LPVOID)
 
         // A naturally finished FMOD channel must never be revived by a late
         // attribute update or another queued state for the same generation.
-        for (auto &entry : channels) {
-            ChannelData &data=entry.second;
-            if (!data.channel || data.phase!=ChannelData::Phase::Playing) continue;
-            refreshChannelLifetime(data);
-        }
+        retireFinishedChannels(channels, generations);
         if (!processedEvent)
             Sleep(1);
     }

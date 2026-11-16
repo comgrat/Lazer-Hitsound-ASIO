@@ -962,6 +962,19 @@ void test_sample_ack_handle_collision_does_not_false_hit()
     CHECK_TRUE(sampleReady(second));
     CHECK_EQ(DWORD(firstAck->sample), first);
     CHECK_EQ(DWORD(firstAck->readyGeneration), DWORD(firstAck->requestedGeneration));
+    CHECK_EQ(sampleInfoMap.at(first).ackIndex, int(firstAck - MyPool->sampleAcks));
+    CHECK_EQ(sampleInfoMap.at(second).ackIndex, int(secondAck - MyPool->sampleAcks));
+    // Removing the first colliding sample must not break the cached second slot.
+    CHECK_TRUE(MyBASS_SampleFree(first));
+    CHECK_TRUE(sampleReady(second));
+    InterlockedExchange(&secondAck->requestedGeneration, secondAck->requestedGeneration + 1);
+    CHECK_FALSE(sampleReady(second));
+    InterlockedExchange(&secondAck->requestedGeneration, secondAck->requestedGeneration - 1);
+    CHECK_TRUE(sampleReady(second));
+    InterlockedExchange(&secondAck->sample, LONG(first));
+    CHECK_FALSE(sampleReady(second));
+    InterlockedExchange(&secondAck->sample, LONG(second));
+    CHECK_TRUE(sampleReady(second));
 
     // Capacity is explicit: with every slot occupied by a different handle,
     // allocation must fail closed instead of overwriting an existing ACK.

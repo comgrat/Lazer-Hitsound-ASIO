@@ -1,7 +1,7 @@
 name: Windows build and regression
 on:
   push:
-    branches: [main, fix/community-review]
+    branches: [main, 'fix/**']
   pull_request:
   workflow_dispatch:
 permissions:

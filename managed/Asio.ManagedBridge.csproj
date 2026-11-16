@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="StartupHook.cs" />
+    <Compile Include="AudioReflection.cs" />
     <Compile Include="AudioContract.cs" />
     <Compile Include="TieredAudioContract.cs" />
     <Compile Include="ContractSettings.cs" />

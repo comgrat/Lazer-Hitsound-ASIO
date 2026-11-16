@@ -49,6 +49,7 @@ struct SampleInfo
     string mappingName;
     HANDLE mappingHandle;
     DWORD generation = 0;
+    int ackIndex = -1; // Stable slot for this sample lifetime; validated on every use.
 
     SampleInfo()
         : sampleRate(0), channels(0), format(SAMPLE_FORMAT_UNKNOWN), dataLength(0), flags(0), mappingHandle(NULL)
@@ -181,8 +182,11 @@ static bool sampleReady(HSAMPLE sample)
     auto it = sampleInfoMap.find(sample);
     if (it == sampleInfoMap.end() || MyPool == NULL)
         return false;
-    const auto *ack = findSampleAck(sample);
-    return ack && DWORD(ack->readyGeneration) == it->second.generation;
+    const auto &info = it->second;
+    if (info.ackIndex < 0 || info.ackIndex >= SAMPLE_ACK_COUNT) return false;
+    const auto &ack = MyPool->sampleAcks[info.ackIndex];
+    return DWORD(ack.sample) == sample && DWORD(ack.requestedGeneration) == info.generation &&
+        DWORD(ack.readyGeneration) == info.generation;
 }
 
 static bool queueAvailable()
@@ -468,6 +472,7 @@ static bool publishSample(HSAMPLE sample)
         auto *ack = findSampleAck(sample, true);
         if (ack)
         {
+            sampleInfoMap[sample].ackIndex = int(ack - MyPool->sampleAcks);
             InterlockedExchange(&ack->readyGeneration, 0);
             InterlockedExchange(&ack->requestedGeneration, LONG(generation));
         }

@@ -36,4 +36,5 @@ foreach($case in $cases){
 }
 if($failed.Count){throw ('Failed regressions: '+($failed -join ', '))}
 Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\AudioContractProbe\AudioContractProbe.csproj'),'-c','Release','--','--tiered-self-test') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'tiered-contract')
-Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed tiered-contract self-test; hardware output and game startup were not used.')
+Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\ManagedGraphProbe\ManagedGraphProbe.csproj'),'-c','Release') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'managed-graph')
+Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed contract/graph probes; hardware output and game startup were not used.')
