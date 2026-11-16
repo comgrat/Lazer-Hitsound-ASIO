@@ -1,12 +1,14 @@
 # Verification and limits
 
-This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the new source snapshot.
+This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the new source snapshot. Version 1.1.1 keeps the binaries from the user-tested candidate commit `7792f7eaa94bd0cf09078c86748a2ff18d0c0bd7`; release source/docs are tagged separately, and the package manifest records `binary_source_commit`.
 
 ## User listening reports
 
 The standalone implementation was tested by its user with a normally started Game2026.1110 / Framework2026.1030 client and a TOPPING E2x2 at 48000 Hz / 16 samples. The user confirmed gameplay hitsounds at an in-game Hitsound setting of 0%, disappearance of the reported echo after asynchronous diagnostic writes, and silence with the tool-side Output Volume set to 0.
 
-Those reports apply to the tested implementation/device/session. The later five-language UI was verified with software checks, not a new listening session in every language. They do not establish long-term stability, arbitrary skin/ruleset compatibility, account safety, or end-to-end latency.
+The user then tested the v1.1.1-rc.1 local candidate, reported no observed problems and subjectively felt lower latency than before, and approved its release as v1.1.1. There was no loopback recording or controlled end-to-end latency measurement for that comparison. The formal release preserves the candidate's native and managed binaries; the manifest records their binary source commit separately from the release documentation commit.
+
+Those reports apply to the tested implementation/device/session. The five-language UI was verified with software checks, not a separate listening session in every language. They do not establish long-term stability, arbitrary skin/ruleset compatibility, account safety, or end-to-end latency.
 
 ## Software checks completed during development
 
@@ -19,7 +21,7 @@ Those reports apply to the tested implementation/device/session. The later five-
 | FMOD output/state regression | 232 checks, 0 failures | Real FMOD NOSOUND; includes legacy/Strict/invalid mode parsing |
 | Native restart/allocation handshake | 28 checks, 0 failures | Production detours with mock BASS |
 | Digital impulse, volume and blocked diagnostic sink | 3540 checks, 0 failures | Synthetic FMOD silent-output capture |
-| Portable release structure/dependencies/configuration | 134 checks, 0 failures | No game or hardware ASIO initialization |
+| Portable release structure/dependencies/configuration | 136 checks, 0 failures | No game or hardware ASIO initialization |
 | Tiered synthetic/configuration/session ABI | 33 checks, 0 failures | Production evaluator and per-PID mode/status mapping |
 | Managed graph cache and traversal buffers | 11 checks, 0 failures | Mutable sources, re-entry, parallel calls, weak collection and cycles |
 | Native hook/ACK regression | 215 checks, 0 failures | Cached ACK slots reject generation/handle reuse; mock BASS |
@@ -28,7 +30,7 @@ Those reports apply to the tested implementation/device/session. The later five-
 | Empty ASIO enumeration | empty=0, enumeration error=1, device initializations=0 | Real config entry with deterministic FMOD stubs |
 | Export preflight and archive provenance | Passed | Missing commit/input leaves no output; environment fallback and checksums verified |
 
-The local v1.1.1-rc.1 candidate adds ACK slot and finished-channel cleanup assertions plus an 11-check managed graph probe. On the same synthetic graph/runtime with warmup, allocation measured 832 bytes/call with the prior bridge versus 200 bytes/call with cached metadata/traversal buffers. This measurement is limited to that fixture; it is not a game or acoustic latency result. This candidate is held locally pending user testing and has not been pushed/published.
+Version 1.1.1 adds ACK slot and finished-channel cleanup assertions plus an 11-check managed graph probe. On the same synthetic graph/runtime with warmup, allocation measured 832 bytes/call with the prior bridge versus 200 bytes/call with cached metadata/traversal buffers. This measurement is limited to that fixture; it is not a game or acoustic latency result. The user approved the corresponding rc.1 candidate after listening tests; the formal package keeps those tested binaries.
 
 The maintenance checks add a ninth native regression and a throwing UI graph fixture. The original v1.1.0 contract mutation results remain identified as that release's baseline; this change does not alter its 80/41 contract catalog. No new hardware listening measurement was performed.
 
@@ -42,7 +44,7 @@ The implementation retains legitimate layered sounds. It does not remove events 
 
 ## Compatibility policy
 
-Version 1.1.0 uses structural signatures, critical semantic projections and exact reviewed Game/Framework pairs. Adaptive is the default; Strict additionally requires the exact reviewed pair. Neither mode skips Tier1/2. See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md). Reviewed references remain .NET10 Game2026.1026/1110 and Framework2026.1019/1030. A failed Tier1/2 check refuses attachment in either mode. In-game Hitsound 0 can make native fallback silent.
+Version 1.1.1 retains structural signatures, critical semantic projections and exact reviewed Game/Framework pairs. Adaptive is the default; Strict additionally requires the exact reviewed pair. Neither mode skips Tier1/2. See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md). Reviewed references remain .NET10 Game2026.1026/1110 and Framework2026.1019/1030. A failed Tier1/2 check refuses attachment in either mode. In-game Hitsound 0 can make native fallback silent.
 
 The software buffer size is a configuration, not a latency measurement. No blanket 16-sample stability or 32/64/128 acoustic comparison claim is made.
 

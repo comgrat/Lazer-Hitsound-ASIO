@@ -23,7 +23,7 @@ Export an untouched portable folder and ZIP:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\distribution\Build-Share.ps1 -OutputDirectory .\artifacts\LazerASIO-Tachyon1110
 ```
 
-Before creating the output directory, the exporter validates the source commit and every package input. In a Git checkout it reads HEAD; for a GitHub source archive, supply its real full 40-character commit with `-SourceCommit` or `ASIO_SOURCE_COMMIT`. A missing/invalid commit fails without leaving a partial output directory. The package README comes from `docs/USAGE.md`. Use `-PackageVersion 1.1.1-rc.1` to identify a local test candidate without publishing a tag or changing the existing Release.
+Before creating the output directory, the exporter validates the source commit and every package input. In a Git checkout it reads HEAD; for a GitHub source archive, supply its real full 40-character commit with `-SourceCommit` or `ASIO_SOURCE_COMMIT`. A missing/invalid commit fails without leaving a partial output directory. The package README comes from `docs/USAGE.md`. `-PackageVersion` identifies a local candidate or release. If a release retains previously listening-tested binaries while only documentation/packaging changes, supply their full source commit with `-BinarySourceCommit`; the manifest records it as `binary_source_commit` separately from `source_commit`. This override records provenance and must not be used to mislabel changed code.
 
 The exporter resets the original five audio fields plus `Contract Mode = 1` (Adaptive) to generic defaults, omits language/device preferences and logs, preserves UTF-8 BOM for Windows PowerShell scripts, and writes file hashes. Use a new directory if the target contains runtime data. Do not package your used tool folder.
 

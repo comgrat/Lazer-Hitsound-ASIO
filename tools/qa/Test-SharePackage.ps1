@@ -721,6 +721,8 @@ if ($standaloneLayout) {
     Add-Check -Name 'standalone watcher continues after game exit' -Ok ($watcherText.Contains('$seen') -and $watcherText.Contains('while (') -and $watcherText.Contains('$backend.Dispose()')) -Detail 'watch loop and owned backend cleanup'
     Add-Check -Name 'standalone package excludes client-copy helper scripts' -Ok (!(Test-Path -LiteralPath (Join-Path $package 'managed\Start-Portable.ps1')) -and !(Test-Path -LiteralPath (Join-Path $package 'managed\Prepare-OfflineClient.ps1'))) -Detail 'independent package'
     $bundle=Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $package 'MANIFEST.json') | ConvertFrom-Json
+    Add-Check -Name 'package release version is declared' -Ok ($bundle.version -match '^\d+\.\d+\.\d+') -Detail $bundle.version
+    if($bundle.binary_source_commit){Add-Check -Name 'manifest records prior tested binary source' -Ok ($bundle.binary_source_commit -match '^[0-9a-f]{40}$') -Detail $bundle.binary_source_commit}
     Add-Check -Name 'standalone manifest declares no game launch or copy' -Ok ($bundle.starts_game -eq $false -and $bundle.copies_client -eq $false -and $bundle.client_included -eq $false) -Detail 'starts_game=false copies_client=false client_included=false'
     $badHashes=@(foreach($entry in $bundle.files) {
         $target=[IO.Path]::GetFullPath((Join-Path $package $entry.path))

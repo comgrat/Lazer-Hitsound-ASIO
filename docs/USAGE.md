@@ -1,10 +1,8 @@
-# LazerASIO — v1.1.1-rc.1
+# LazerASIO — v1.1.1
 
 [简体中文](#简体中文) · [繁體中文](#繁體中文) · [English](#english) · [Français](#français) · [Español](#español)
 
 Based on [Mother-Ship/osu-lazer-External-ASIO-Sound](https://github.com/Mother-Ship/osu-lazer-External-ASIO-Sound), whose upstream is [XTXTMTXTX/osu-External-ASIO-Sound](https://github.com/XTXTMTXTX/osu-External-ASIO-Sound). This is an independently maintained modification, not an official upstream release. Original authorship and third-party rights remain with their respective owners.
-
-This is the local v1.1.1-rc.1 test build, pending user listening tests before any GitHub push or release. 此为本地测试候选包；用户测试确认后才推送或发布。
 
 This package does not include the game, account data or beatmaps. `Start-ASIO.cmd` opens the same public launcher. Reviewed references include Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`.
 

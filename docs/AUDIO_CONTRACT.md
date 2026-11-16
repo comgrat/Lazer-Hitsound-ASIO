@@ -1,4 +1,4 @@
-# Audio contract policy (v1.1.0)
+# Audio contract policy (v1.1.1)
 
 The contract is checked before any Harmony patch is installed. It is a compatibility check over a bounded set of audio dependencies, not a proof of account safety, correctness of an arbitrary new client, or audible output.
 
