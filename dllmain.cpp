@@ -636,10 +636,17 @@ static bool publishChannelState(HCHANNEL channel, DWORD state)
 
 static void publishChannelRemoved(HCHANNEL channel)
 {
+    // Streams that never passed through SampleGetChannel (music, previews,
+    // mixer sources) have no backend lifetime. The backend rejects generation
+    // 0, so publishing one would only consume queue capacity.
+    DWORD generation = channelGeneration(channel);
+    if (generation == 0)
+        return;
+
     Event event;
     memset(&event, 0, sizeof(event));
     event.type = EVENT_CHANNEL_REMOVED;
-    event.generation = channelGeneration(channel);
+    event.generation = generation;
     event.data.channelRemoved.channel = channel;
     pushEvent(event);
 }

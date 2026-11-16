@@ -671,6 +671,28 @@ void test_stream_free_and_channel_stop_failure_keep_tracking()
     CHECK_EQ(countState(events, CHANNEL_STATE_PAUSED), 0);
 }
 
+void test_untracked_stream_free_publishes_nothing()
+{
+    resetFixture();
+    clearEvents();
+    // A music/preview stream never passed through SampleGetChannel.
+    const HCHANNEL untracked = 0x7701;
+    CHECK_FALSE(channelPresent(untracked));
+    CHECK_TRUE(MyBASS_StreamFree(untracked));
+    CHECK_TRUE(eventsSnapshot().empty());
+
+    // A tracked lifetime still reports exactly one REMOVED with its generation.
+    Fixture fixture = createChannel(true, 0.25f);
+    const DWORD generation = channelGeneration(fixture.channel);
+    CHECK_TRUE(generation != 0);
+    clearEvents();
+    CHECK_TRUE(MyBASS_StreamFree(fixture.channel));
+    std::vector<Event> events = eventsSnapshot();
+    CHECK_EQ(events.size(), 1);
+    CHECK_EQ(countRemoved(events, generation), 1);
+    CHECK_FALSE(channelPresent(fixture.channel));
+}
+
 void test_handle_reuse_advances_generation()
 {
     resetFixture();
@@ -1344,6 +1366,7 @@ int main()
          test_pause_resume_mixer_remove_readd_preserve_state},
         {"stream_free_and_channel_stop_failure_keep_tracking",
          test_stream_free_and_channel_stop_failure_keep_tracking},
+        {"untracked_stream_free_publishes_nothing", test_untracked_stream_free_publishes_nothing},
         {"handle_reuse_advances_generation", test_handle_reuse_advances_generation},
         {"queue_full_start_falls_back_native_without_mute",
          test_queue_full_start_falls_back_native_without_mute},
