@@ -43,3 +43,9 @@ The public path uses an EXE launcher, a PowerShell watcher, a backend and an inj
 The opt-in `StartupHook.Initialize` route is an internal legacy/test entry, not a supported early-attach mode. Public scripts use live attach and never set global `DOTNET_STARTUP_HOOKS`. Removing the legacy route and splitting production `.cpp` units should be separate changes with existing hook coverage retained.
 
 FMOD 2.02.24's original agreement and upstream project-wide licensing need authentic owner/vendor evidence before a broad license can be granted. A new LICENSE filename or copying current web terms cannot establish that evidence.
+
+## Round2 A2 shared diagnostic configuration
+
+The backend parses settings by key and publishes startupDebug before backendReady=1. The hook validates and opens the session mapping before reading this immutable startup choice or starting AsyncTextLog. Log paths use wide characters. DllMain starts the initialization thread and performs no config/log file I/O; readValue, initDebugLogSetting and the ANSI config/log path cache were removed.
+
+A1 reserves the complete round2 layout so the protocol magic changes once, from 0x41534932 to **0x41534933**. The fields after head/tail are startupDebug, diagnosticsEnabled, failureHead/failureTail and a 256-entry channel/generation failure ring, followed by the existing sample ACK and event arrays. The native backend and hook must be rebuilt and delivered together. The managed bridge uses its existing separate attachment ABI and does not read this native sharepool layout. The event Local\OsuAsioV2Wake_<pid> is a separate kernel object.

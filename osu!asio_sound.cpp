@@ -910,6 +910,7 @@ int main(int argc, char *argv[])
     memset(MyPool, 0, sizeof(*MyPool));
     MyPool->magic = ASIO_PROTOCOL_MAGIC;
     MyPool->targetPid = PID;
+    MyPool->startupDebug = startupSettings.debug;
     char diagnosticsSetting[2] = {};
     environmentDiagnostics = GetEnvironmentVariableA("ASIO_DIAGNOSTICS", diagnosticsSetting, sizeof(diagnosticsSetting)) == 1 && diagnosticsSetting[0] == '1';
     MyPool->diagnosticsEnabled = environmentDiagnostics || startupSettings.debug;

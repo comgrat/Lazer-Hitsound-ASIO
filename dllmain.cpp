@@ -127,8 +127,7 @@ static std::atomic<bool> pollerRunning{false};
 static LONG nextGeneration = 0;
 static std::recursive_mutex samplePublishMutex;
 static HMODULE selfModule = NULL;
-static char logFilePath[MAX_PATH] = {0};
-static char configFilePath[MAX_PATH] = {0};
+
 static int debugLogEnabled = 0;
 static asio::AsyncTextLog* hookTextLog = nullptr;
 static std::atomic<bool> traceEnabled{false};
@@ -205,73 +204,30 @@ static DWORD channelGeneration(HCHANNEL channel)
     return generation;
 }
 
-static void initLogPath()
+static std::wstring hookDirectory()
 {
-    if (logFilePath[0] != '\0')
-        return;
-
-    char modulePath[MAX_PATH] = {0};
-    DWORD length = GetModuleFileNameA(selfModule, modulePath, MAX_PATH);
-    if (length == 0 || length >= MAX_PATH)
-        return;
-
-    char *slash = strrchr(modulePath, '\\');
-    if (slash == NULL)
-        slash = strrchr(modulePath, '/');
-    if (slash != NULL)
-        *(slash + 1) = '\0';
-    else
-        modulePath[0] = '\0';
-
-    snprintf(logFilePath, MAX_PATH, "%sasio_hook.log", modulePath);
-    snprintf(configFilePath, MAX_PATH, "%sconfig.ini", modulePath);
+    std::wstring path(32768, L'\0');
+    DWORD length = GetModuleFileNameW(selfModule, path.data(), DWORD(path.size()));
+    if (!length || length >= path.size()) return {};
+    path.resize(length);
+    auto slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring{} : path.substr(0, slash + 1);
 }
 
-static int readValue(FILE *fp, int defaultValue)
+static void readSessionDiagnostics()
 {
-    int x = 0, f = 1;
-    int raw = fgetc(fp);
-    if (raw == EOF)
-        return defaultValue;
-    char ch = (char)raw;
-    while (ch < '0' || ch > '9')
-    {
-        if (ch == '-')
-            f = -1;
-        raw = fgetc(fp);
-        if (raw == EOF)
-            return defaultValue;
-        ch = (char)raw;
-    }
-    while (ch >= '0' && ch <= '9')
-    {
-        x = x * 10 + ch - '0';
-        raw = fgetc(fp);
-        if (raw == EOF)
-            break;
-        ch = (char)raw;
-    }
-    return x * f;
+    debugLogEnabled = MyPool && MyPool->startupDebug == 1;
+    traceEnabled = MyPool && MyPool->diagnosticsEnabled != 0;
 }
 
-static void initDebugLogSetting()
+static void startHookDiagnostics()
 {
-    initLogPath();
-    if (configFilePath[0] == '\0')
-        return;
-
-    FILE *fp = fopen(configFilePath, "r");
-    if (fp == NULL)
-        return;
-
-    int discard = 0;
-    discard = readValue(fp, 128);
-    discard = readValue(fp, 0);
-    discard = readValue(fp, 48000);
-    discard = readValue(fp, 100);
-    debugLogEnabled = readValue(fp, debugLogEnabled) ? 1 : 0;
-    (void)discard;
-    fclose(fp);
+    readSessionDiagnostics();
+    if (!debugLogEnabled || hookTextLog) return;
+    auto directory = hookDirectory();
+    if (directory.empty()) return;
+    hookTextLog = new(std::nothrow) asio::AsyncTextLog;
+    if (hookTextLog) hookTextLog->startFile((directory + L"asio_hook.log").c_str());
 }
 
 static void logPrintf(const char *format, ...)
@@ -280,10 +236,6 @@ static void logPrintf(const char *format, ...)
         return;
 
     if (!debugLogEnabled)
-        return;
-
-    initLogPath();
-    if (logFilePath[0] == '\0')
         return;
 
     char buffer[1024];
@@ -1086,8 +1038,6 @@ BOOL WINAPI MyBASS_StreamFree(DWORD handle)
 
 extern "C" __declspec(dllexport) void initDLL()
 {
-    char traceSetting[2] = {};
-    traceEnabled = GetEnvironmentVariableA("ASIO_DIAGNOSTICS", traceSetting, sizeof(traceSetting)) == 1 && traceSetting[0] == '1';
     HMODULE bassModule = NULL;
     HMODULE bassMixModule = NULL;
 
@@ -1117,6 +1067,7 @@ extern "C" __declspec(dllexport) void initDLL()
     wchar_t wakeName[80];
     asio::wakeEventName(wakeName, GetCurrentProcessId());
     hookWake = OpenEventW(EVENT_MODIFY_STATE, FALSE, wakeName);
+    startHookDiagnostics();
 
     if (MH_Initialize() != MH_OK)
     {
@@ -1189,19 +1140,8 @@ extern "C" __declspec(dllexport) void initDLL()
 
 static DWORD WINAPI hookStartup(LPVOID)
 {
-    // Initialise diagnostics outside loader lock, before any detours can run.
-    if(debugLogEnabled) {
-        wchar_t module[MAX_PATH];
-        DWORD length=GetModuleFileNameW(selfModule,module,MAX_PATH);
-        wchar_t* slash=length && length<MAX_PATH ? wcsrchr(module,L'\\') : nullptr;
-        if(slash) {
-            *(slash+1)=0;
-            std::wstring path=std::wstring(module)+L"asio_hook.log";
-            hookTextLog=new(std::nothrow) asio::AsyncTextLog;
-            if(hookTextLog) hookTextLog->startFile(path.c_str());
-        }
-    }
-    logPrintf("[ASIO Hook] DLL attached pid=%lu; diagnostic sink is asynchronous\n", (unsigned long)GetCurrentProcessId());
+    InitializeCriticalSection(&logLock);
+    logLockInitialised = true;
     char name[80]; asioLiveMapName(name, GetCurrentProcessId());
     HANDLE liveMap = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, name);
     auto* live = liveMap ? static_cast<AsioLiveAttach*>(MapViewOfFile(liveMap, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(AsioLiveAttach))) : nullptr;
@@ -1212,15 +1152,12 @@ static DWORD WINAPI hookStartup(LPVOID)
         int result = E_FAIL;
         if (hooksInitialised) {
             InterlockedExchange(&live->status, 1);
-            wchar_t path[MAX_PATH];
-            DWORD length = GetModuleFileNameW(selfModule, path, MAX_PATH);
-            wchar_t* slash = length && length < MAX_PATH ? wcsrchr(path, L'\\') : nullptr;
-            if (slash) {
-                *slash = 0;
-                std::wstring root = path;
-                std::wstring assembly = root + L"\\managed\\Asio.ManagedBridge.dll";
+            auto directory = hookDirectory();
+            if (!directory.empty()) {
+                directory.pop_back();
+                std::wstring assembly = directory + L"\\managed\\Asio.ManagedBridge.dll";
                 result = asio::loadExistingManaged(assembly.c_str(), L"LiveEntry, Asio.ManagedBridge", L"Initialize",
-                    const_cast<wchar_t*>(root.c_str()), static_cast<int>((root.size() + 1) * sizeof(wchar_t)));
+                    const_cast<wchar_t*>(directory.c_str()), static_cast<int>((directory.size() + 1) * sizeof(wchar_t)));
             }
         }
         liveManagedReady = result == 0;
@@ -1240,51 +1177,33 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
     case DLL_PROCESS_ATTACH:
     {
         selfModule = hDLL;
-        InitializeCriticalSection(&logLock);
-        logLockInitialised = true;
-        initLogPath();
-        initDebugLogSetting();
-        logPrintf("[ASIO Hook] DLL attached pid=%lu\n", (unsigned long)GetCurrentProcessId());
         DisableThreadLibraryCalls(hDLL);
-        HANDLE h1 = CreateThread(0, 0, hookStartup, 0, 0, 0);
-        if (h1 != NULL)
-            CloseHandle(h1);
+        HANDLE thread = CreateThread(nullptr, 0, hookStartup, nullptr, 0, nullptr);
+        if (thread) CloseHandle(thread);
         break;
     }
-
     case DLL_PROCESS_DETACH:
-        // Successful hooks pin this DLL. At process termination other threads
-        // are gone; avoid waiting on locks they may have held under loader lock.
-        if (Reserved != NULL)
-            return TRUE;
-        logPrintf("[ASIO Hook] DLL detaching pid=%lu\n", (unsigned long)GetCurrentProcessId());
+        // Successful hooks pin the module. Do not wait under loader lock when
+        // the process terminates; other threads may own these locks.
+        if (Reserved != nullptr) return TRUE;
         pollerRunning = false;
-
         if (hooksInitialised)
         {
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
         }
-
         if (locksInitialised)
         {
             EnterCriticalSection(&stateLock);
-            for (auto it = sampleInfoMap.begin(); it != sampleInfoMap.end(); ++it)
-            {
-                if (it->second.mappingHandle != NULL)
-                    CloseHandle(it->second.mappingHandle);
-            }
+            for (auto &entry : sampleInfoMap)
+                if (entry.second.mappingHandle) CloseHandle(entry.second.mappingHandle);
             sampleInfoMap.clear();
             channelInfoMap.clear();
             LeaveCriticalSection(&stateLock);
         }
-
-        if (lpBase != NULL)
-            UnmapViewOfFile(lpBase);
-        if (hMapFile != NULL)
-            CloseHandle(hMapFile);
+        if (lpBase) UnmapViewOfFile(lpBase);
+        if (hMapFile) CloseHandle(hMapFile);
         if (hookWake) CloseHandle(hookWake);
-
         if (locksInitialised)
         {
             DeleteCriticalSection(&queueLock);
@@ -1297,6 +1216,5 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
         }
         break;
     }
-
     return TRUE;
 }

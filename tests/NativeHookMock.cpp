@@ -18,6 +18,7 @@
 #include <functional>
 #include <thread>
 #include <utility>
+#include "../settings.h"
 
 namespace
 {
@@ -933,6 +934,28 @@ void test_v2_context_rejects_stale_generation_after_handle_reuse()
 
 // Two sample handles separated by exactly 4096 share a slot index. Full-handle
 // probing must keep both ACKs alive and must not report a false hit for a third.
+void test_shared_debug_matches_keyed_settings()
+{
+    resetFixture();
+    const std::string inputs[] = {
+        "[Config]\nDebug Log=0\nOutput Volume=50\nSample Rate=48000\nASIO Driver ID=0\nBuffer Size=16\n",
+        "; 16 samples @ 48 kHz\n[Config]\nBuffer Size=16\nASIO Driver ID=0\nSample Rate=48000\nOutput Volume=50\nDebug Log=0\n",
+        "; 777 unrelated\n[Config]\nDebug Log=1\nSample Rate=48000\nASIO Driver ID=0\nOutput Volume=50\nBuffer Size=16\n"
+    };
+    for (const auto &input : inputs) {
+        asio::Settings parsed;
+        std::string error;
+        CHECK_TRUE(asio::parseSettings(input, parsed, error));
+        MyPool->startupDebug = parsed.debug;
+        MyPool->diagnosticsEnabled = parsed.debug;
+        readSessionDiagnostics();
+        CHECK_EQ(debugLogEnabled, parsed.debug);
+        CHECK_EQ(traceEnabled.load(), parsed.debug != 0);
+    }
+    debugLogEnabled = 0;
+    traceEnabled = false;
+}
+
 void test_wake_and_diagnostic_timestamps()
 {
     resetFixture();
@@ -1200,6 +1223,7 @@ int main()
          test_resume_without_sample_ack_must_not_start_external},
         {"v2_context_rejects_stale_generation_after_handle_reuse",
          test_v2_context_rejects_stale_generation_after_handle_reuse},
+        {"shared_debug_matches_keyed_settings", test_shared_debug_matches_keyed_settings},
         {"wake_and_diagnostic_timestamps", test_wake_and_diagnostic_timestamps},
         {"sample_ack_handle_collision_does_not_false_hit",
          test_sample_ack_handle_collision_does_not_false_hit},
