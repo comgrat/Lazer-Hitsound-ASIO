@@ -18,14 +18,16 @@ $cases=@(
  @{name='player-output';source='PlayerOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
  @{name='output-regression';source='OutputRegression.cpp';fmod=$true;hook=$false;arguments=@('--artifacts',$fixtureDirectory)},
  @{name='digital-output';source='DigitalOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
- @{name='config-enumeration';source='ConfigEnumerationProbe.cpp';fmod=$false;hook=$false;arguments=@()}
+ @{name='config-enumeration';source='ConfigEnumerationProbe.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='wake-latency-old';source='WakeLatencyProbe.cpp';fmod=$false;hook=$false;arguments=@('--old')},
+ @{name='wake-latency-new';source='WakeLatencyProbe.cpp';fmod=$false;hook=$false;arguments=@('--new')}
 )
 $failed=@()
 Copy-Item -LiteralPath (Join-Path $repo 'fmod.dll') -Destination (Join-Path $output 'fmod.dll') -Force
 foreach($case in $cases){
     $exe=Join-Path $output ($case.name+'.exe')
     $object=Join-Path $output ($case.name+'.obj')
-    $arguments=@('/nologo','/utf-8','/std:c++17','/EHsc','/O2','/MT',('/I'+$repo),('/I'+(Join-Path $repo 'tests')),(Join-Path "$repo\tests" $case.source),('/Fo'+$object),('/Fe'+$exe),'/link','/LTCG','User32.lib','Advapi32.lib')
+    $arguments=@('/nologo','/utf-8','/std:c++17','/EHsc','/O2','/MT',('/I'+$repo),('/I'+(Join-Path $repo 'tests')),(Join-Path "$repo\tests" $case.source),('/Fo'+$object),('/Fe'+$exe),'/link','/LTCG','User32.lib','Advapi32.lib','winmm.lib')
     if($case.fmod){$arguments+=@((Join-Path $repo 'lib\fmod_vc.lib'))}
     if($case.hook){$arguments+=(Join-Path $repo 'lib\libMinHook.x64.lib')}
     & cl.exe @arguments

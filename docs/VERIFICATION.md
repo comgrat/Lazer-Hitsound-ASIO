@@ -55,3 +55,16 @@ The two reference client families each passed 77 assertions covering exact match
 A separate install probe loads the real audio assemblies in isolated processes: Exact/Strict and harmless-drift/Adaptive install the expected Harmony patches; drift/Strict and a broken anchor are rejected with no patches left on the inspected targets. These tests do not launch the game or open ASIO hardware. This release has no new physical listening/latency claim.
 
 Candidate extraction was tested to leave the embedded source catalog unchanged. Explicit append added exactly one reviewed pair, retained the structural/semantic policy and wrote a recovery copy. Structural/semantic breaks are not promoted. Runtime reads the rebuilt embedded catalog, not a mutable loose JSON.
+
+## Round2 A1 synthetic queue wake measurement
+
+On Windows 11 Pro 10.0.26300 x64, using MSVC 14.44.35207, Windows SDK 10.0.26100.0 and an optimized C++17 /O2 /MT build, separate process runs of `WakeLatencyProbe --old` and `--new` each exchanged 256 acknowledged events. The old consumer uses Sleep(1) without requesting a timer period; the new consumer uses an auto-reset event, a 5 ms wait timeout and timeBeginPeriod(1). The producer uses the same QPC timestamp and atomic handshake in both modes.
+
+| Synthetic queue path | n | p50 ms | p95 ms | max ms |
+| --- | ---: | ---: | ---: | ---: |
+| Sleep(1), no timer request | 256 | 15.057800 | 15.798000 | 16.210900 |
+| Event plus 1 ms timer request | 256 | 0.013400 | 0.018400 | 0.089200 |
+
+These are measurements from one local producer/consumer fixture, with a producer that yields between enqueue attempts. They do not measure BASS, a real gameplay workload, ASIO hardware or acoustic latency. Scheduler load and power state can change the result. Core runs print new measurements without a timing threshold; only completion and the sample count are asserted.
+
+Production diagnostics collect enqueue-to-handler QPC delay for PLAY events in a bounded 4096-value window and log p50/p95/max every five seconds when Debug Log=1 or ASIO_DIAGNOSTICS=1. No physical latency or new listening result is claimed for round2.

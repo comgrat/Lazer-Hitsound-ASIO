@@ -21,6 +21,7 @@
 #include "settings.h"
 #include "async_text_log.h"
 #include "i18n.h"
+#include "event_wake.h"
 namespace ui=asio::i18n;
 
 using namespace std;
@@ -67,6 +68,9 @@ static struct sharepool *MyPool = nullptr;
 static std::atomic<bool> Work{false};
 static std::atomic<bool> backendFault{false};
 static DWORD mainThreadId = 0;
+static HANDLE backendWake = nullptr;
+static bool environmentDiagnostics = false;
+static asio::QueueLatency queueLatency;
 
 static int bufferSize = 128;
 static int driverId = 0;
@@ -113,6 +117,7 @@ static bool refreshOutputVolume()
 {
     int nextVolume=requestedOutputVolume.load(std::memory_order_acquire);
     debugLogEnabled=requestedDebugLog.load(std::memory_order_acquire);
+    if (MyPool) InterlockedExchange(&MyPool->diagnosticsEnabled, environmentDiagnostics || debugLogEnabled);
     if(nextVolume==outputVolume) return true;
     if(!asioOutputGroup) return false;
     FMOD_RESULT result=FMOD_ChannelGroup_SetVolume(asioOutputGroup,nextVolume/100.0f);
@@ -147,6 +152,12 @@ static void reportPlaybackStats()
     if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu missingSample=%llu\n",
            MyPool->backendReady, playbackStats.samplesLoaded, playbackStats.playRequests,
            playbackStats.starts, playbackStats.missingSamples);
+    if (MyPool && MyPool->diagnosticsEnabled && playbackLog)
+    {
+        auto delay = queueLatency.summary();
+        playbackLog->write("[ASIO status] queue_start_ms n=%zu p50=%.4f p95=%.4f max=%.4f (last <=4096 diagnostic PLAY events)\n",
+            delay.count, delay.p50, delay.p95, delay.maximum);
+    }
 }
 
 static void debugPrintf(const char *format, ...)
@@ -498,6 +509,9 @@ static DWORD WINAPI mainloop(LPVOID)
             MemoryBarrier();
             MyPool->head = (MyPool->head + 1) % EVENT_POOL_SIZE;
             processedEvent = true;
+            if (event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING &&
+                MyPool->diagnosticsEnabled && event.data.channelState.time > 0)
+                queueLatency.add(asio::qpcMilliseconds() - event.data.channelState.time);
 
             if (event.type >= EVENT_CHANNEL_CREATED && event.type <= EVENT_CHANNEL_REMOVED) {
                 HCHANNEL handle=event.type==EVENT_CHANNEL_CREATED ? event.data.channelCreated.channel : event.data.channelUpdated.channel;
@@ -654,7 +668,10 @@ static DWORD WINAPI mainloop(LPVOID)
         // attribute update or another queued state for the same generation.
         retireFinishedChannels(channels, generations);
         if (!processedEvent)
-            Sleep(1);
+        {
+            if (backendWake) WaitForSingleObject(backendWake, 5);
+            else Sleep(1);
+        }
     }
     InterlockedExchange(&MyPool->backendReady, 0);
     reportPlaybackStats();
@@ -787,6 +804,7 @@ int main(int argc, char *argv[])
         fprintf(stderr,"%s\n",ui::text("backend.internal").c_str());
         return 2;
     }
+    asio::TimerResolution timerResolution;
     mainThreadId = GetCurrentThreadId();
     MSG initialMessage;
     PeekMessage(&initialMessage, NULL, 0, 0, PM_NOREMOVE);
@@ -796,6 +814,7 @@ int main(int argc, char *argv[])
     if (directory.empty() || !SetCurrentDirectoryW(directory.c_str())) return 1;
     if (!init()) return 1;
     printf("FMOD Studio Low Level API (C) Firelight Technologies Pty Ltd.\n");
+
 
 #ifdef __EXESELECT
     printf("Input the osu executable name with extension name (exp: osu!.exe): ");
@@ -891,6 +910,12 @@ int main(int argc, char *argv[])
     memset(MyPool, 0, sizeof(*MyPool));
     MyPool->magic = ASIO_PROTOCOL_MAGIC;
     MyPool->targetPid = PID;
+    char diagnosticsSetting[2] = {};
+    environmentDiagnostics = GetEnvironmentVariableA("ASIO_DIAGNOSTICS", diagnosticsSetting, sizeof(diagnosticsSetting)) == 1 && diagnosticsSetting[0] == '1';
+    MyPool->diagnosticsEnabled = environmentDiagnostics || startupSettings.debug;
+    asio::WakeEvent wakeEvent;
+    wakeEvent.create(PID); // Missing event is a supported polling fallback.
+    backendWake = wakeEvent.get();
     InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount()));
     FMOD_DSP *leaseDSP = nullptr;
     FMOD_CHANNELGROUP *leaseMaster = nullptr;

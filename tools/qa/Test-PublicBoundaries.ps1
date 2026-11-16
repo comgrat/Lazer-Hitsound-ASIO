@@ -8,7 +8,7 @@ $output=Join-Path $repo 'tests\bin'
 $null=New-Item -ItemType Directory -Path $output -Force
 $probe=Join-Path $output 'backend-path.exe'
 $source=Join-Path $repo 'tests\BackendPathProbe.cpp'
-& cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro $source ("/Fo$output\backend-path.obj") ("/Fe$probe") /link (Join-Path $repo 'lib\fmod_vc.lib') User32.lib Advapi32.lib
+& cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro $source ("/Fo$output\backend-path.obj") ("/Fe$probe") /link (Join-Path $repo 'lib\fmod_vc.lib') User32.lib Advapi32.lib winmm.lib
 if($LASTEXITCODE){throw 'Cannot build backend path fixture.'}
 $unicode=([string][char]0x65E5)+[char]0x672C+[char]0x8A9E+' '+[char]0xD83C+[char]0xDFB5
 $run=Join-Path $output ('public-'+[guid]::NewGuid().ToString('N'))

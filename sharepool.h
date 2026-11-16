@@ -25,8 +25,6 @@ typedef int BOOL;
 #define MAKELONG(a,b) (DWORD)(((a)&0xffff)|((b)<<16))
 #endif
 
-#define DETAILOUTPUT 0
-
 #define BASS_ATTRIB_FREQ            1
 #define BASS_ATTRIB_VOL             2
 #define BASS_ATTRIB_PAN             3
@@ -45,8 +43,9 @@ typedef DWORD HCHANNEL;
 
 const int EVENT_POOL_SIZE = 8192;
 const int MAPPING_NAME_LENGTH = 128;
-const DWORD ASIO_PROTOCOL_MAGIC = 0x41534932;
+const DWORD ASIO_PROTOCOL_MAGIC = 0x41534933;
 const int SAMPLE_ACK_COUNT = 4096;
+const int CHANNEL_FAILURE_COUNT = 256;
 
 enum EventType
 {
@@ -157,6 +156,11 @@ struct sharepool
     volatile LONG heartbeat;
     volatile LONG head;
     volatile LONG tail;
+    LONG startupDebug; // Backend parsed config; immutable for this attachment.
+    volatile LONG diagnosticsEnabled; // Debug Log or backend ASIO_DIAGNOSTICS.
+    volatile LONG failureHead;
+    volatile LONG failureTail;
+    struct ChannelFailure { DWORD channel; DWORD generation; } channelFailures[CHANNEL_FAILURE_COUNT];
     struct SampleAck
     {
         volatile LONG sample;

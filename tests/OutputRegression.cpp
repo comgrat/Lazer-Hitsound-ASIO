@@ -45,8 +45,14 @@ static std::string ini(int percent, bool decorated = false, int debug = 0) {
         std::to_string(percent) + "\nDebug Log = " + std::to_string(debug) + "\n";
 }
 static void writeBytes(const std::wstring &file, const std::string &text) {
-    HANDLE handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    HANDLE handle = INVALID_HANDLE_VALUE;
+    ULONGLONG deadline = GetTickCount64() + 500;
+    do {
+        handle = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle != INVALID_HANDLE_VALUE || GetLastError() != ERROR_SHARING_VIOLATION) break;
+        Sleep(1);
+    } while (GetTickCount64() < deadline);
     require(handle != INVALID_HANDLE_VALUE, "create only the fixture INI");
     DWORD bytes = 0;
     bool ok = WriteFile(handle, text.data(), DWORD(text.size()), &bytes, nullptr) && bytes == text.size();
@@ -136,6 +142,8 @@ struct Watcher {
 struct Worker {
     HANDLE thread = nullptr;
     Worker() {
+        backendWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        require(backendWake != nullptr, "create production worker wake event");
         Work = true;
         thread = CreateThread(nullptr, 0, mainloop, nullptr, 0, nullptr);
         require(thread != nullptr, "start real production event worker");
@@ -146,6 +154,7 @@ struct Worker {
         LONG next = (tail + 1) % EVENT_POOL_SIZE;
         require(next != InterlockedCompareExchange(&MyPool->head, 0, 0), "test queue has capacity");
         MyPool->events[tail] = event; MemoryBarrier(); InterlockedExchange(&MyPool->tail, next);
+        SetEvent(backendWake);
     }
     void drained() {
         require(eventually([] { return InterlockedCompareExchange(&MyPool->head, 0, 0) == InterlockedCompareExchange(&MyPool->tail, 0, 0); }), "worker consumes queued test events");
@@ -157,6 +166,8 @@ struct Worker {
         check(waited == WAIT_OBJECT_0, "event worker joins within bound");
         if (waited != WAIT_OBJECT_0) WaitForSingleObject(thread, INFINITE);
         CloseHandle(thread); thread = nullptr;
+        CloseHandle(backendWake);
+        backendWake = nullptr;
     }
 };
 static Event state(HCHANNEL handle, DWORD generation, HSAMPLE sample, bool play, bool loop = false) {
@@ -277,8 +288,10 @@ static void naturallyFinishedHelpers() {
     check(!applyChannelState(voice) && voice.phase == ChannelData::Phase::Finished && !voice.channel && !voice.playing,
         "late property update marks completed handle Finished");
     ensurePaused(voice); ensurePlaying(voice, samples.at(19));
-    check(!voice.channel && voice.voiceId == id && nextVoiceId == 1 && activeChannels() == 0,
+    check(!voice.channel && voice.voiceId == id && nextVoiceId == 1,
         "Finished helper rejects late PLAY after update and pause");
+    check(eventually([] { FMOD_System_Update(fmodSystem); return activeChannels() == 0; }),
+        "FMOD activity count converges after natural completion");
     FMOD_Channel_Stop(old); // An already-invalid handle must not allocate another voice.
     ensurePlaying(voice, samples.at(19));
     check(nextVoiceId == 1 && !voice.channel, "late stop followed by PLAY does not revive Finished data");
@@ -407,6 +420,35 @@ static void reusedGenerationLatePlay() {
     check(nextVoiceId == 2 && playbackStats.starts == 2, "stale old-generation PLAY never allocates a third voice");
 }
 
+static void idleWakeHeartbeat() {
+    section("wake event drains bursts and keeps heartbeat alive while idle");
+    System system;
+    Worker worker;
+    require(eventually([] { return MyPool->heartbeat != 0; }), "idle worker publishes first heartbeat");
+    LONG before = InterlockedCompareExchange(&MyPool->heartbeat, 0, 0);
+    Sleep(60);
+    LONG after = InterlockedCompareExchange(&MyPool->heartbeat, 0, 0);
+    check(after != before && DWORD(GetTickCount() - DWORD(after)) < 250, "idle timed waits continue heartbeat and FMOD updates");
+    for (int i = 0; i < 32; ++i) {
+        Event event = {};
+        event.type = EVENT_NONE;
+        worker.send(event);
+    }
+    worker.drained();
+    check(MyPool->backendReady == 1, "coalesced auto-reset signals do not lose queued burst");
+    queueLatency = {};
+    requestedDebugLog = 1;
+    require(eventually([] { return MyPool->diagnosticsEnabled == 1; }), "diagnostic mode reaches shared mapping");
+    Event play = state(990, 990, 99999, true);
+    play.data.channelState.time = asio::qpcMilliseconds();
+    worker.send(play);
+    worker.drained();
+    worker.stop();
+    auto delay = queueLatency.summary();
+    check(delay.count == 1 && delay.maximum >= 0, "backend collects diagnostic PLAY enqueue-to-handler delay");
+    requestedDebugLog = 0;
+}
+
 static void failingBackend() {
     section("fault synchronously mutes master, then event-worker shutdown stops loop");
     System system; MappedSample mapped(37, 8, 48000);
@@ -438,7 +480,7 @@ int wmain(int argc, wchar_t **argv) {
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
         parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching();
-        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); failingBackend();
+        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); failingBackend();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());
         ++failures;

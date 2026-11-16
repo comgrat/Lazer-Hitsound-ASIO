@@ -331,6 +331,8 @@ void resetFixture()
     MyPool->head = 0;
     MyPool->tail = 0;
 
+    debugLogEnabled = 0;
+    traceEnabled = false;
     g_mock = MockBass{};
     installMocks();
 }
@@ -931,6 +933,36 @@ void test_v2_context_rejects_stale_generation_after_handle_reuse()
 
 // Two sample handles separated by exactly 4096 share a slot index. Full-handle
 // probing must keep both ACKs alive and must not report a false hit for a third.
+void test_wake_and_diagnostic_timestamps()
+{
+    resetFixture();
+    asio::WakeEvent owner;
+    CHECK_TRUE(owner.create(GetCurrentProcessId()));
+    HANDLE wake = owner.get();
+    wchar_t name[80];
+    asio::wakeEventName(name, GetCurrentProcessId());
+    hookWake = OpenEventW(EVENT_MODIFY_STATE, FALSE, name);
+    CHECK_TRUE(hookWake != nullptr);
+    Event event = {};
+    event.type = EVENT_CHANNEL_STATE;
+    event.data.channelState.state = CHANNEL_STATE_PLAYING;
+    CHECK_TRUE(pushEvent(event));
+    CHECK_EQ(WaitForSingleObject(wake, 0), WAIT_OBJECT_0);
+    CHECK_EQ(WaitForSingleObject(wake, 0), WAIT_TIMEOUT);
+    CHECK_NEAR(float(MyPool->events[0].data.channelState.time), 0.0f, 0.0f);
+    MyPool->diagnosticsEnabled = 1;
+    double before = asio::qpcMilliseconds();
+    CHECK_TRUE(pushEvent(event));
+    CHECK_TRUE(MyPool->events[1].data.channelState.time >= before);
+    CHECK_TRUE(MyPool->events[1].data.channelState.time <= asio::qpcMilliseconds());
+    for (int i = 0; i < 20; ++i) CHECK_TRUE(pushEvent(event));
+    CHECK_EQ(MyPool->tail, 22L);
+    CHECK_EQ(WaitForSingleObject(wake, 0), WAIT_OBJECT_0);
+    CloseHandle(hookWake);
+    hookWake = nullptr;
+    CHECK_TRUE(pushEvent(event));
+}
+
 void test_sample_ack_handle_collision_does_not_false_hit()
 {
     resetFixture();
@@ -1168,6 +1200,7 @@ int main()
          test_resume_without_sample_ack_must_not_start_external},
         {"v2_context_rejects_stale_generation_after_handle_reuse",
          test_v2_context_rejects_stale_generation_after_handle_reuse},
+        {"wake_and_diagnostic_timestamps", test_wake_and_diagnostic_timestamps},
         {"sample_ack_handle_collision_does_not_false_hit",
          test_sample_ack_handle_collision_does_not_false_hit},
         {"restore_failure_sets_pending_and_monitor_retries",

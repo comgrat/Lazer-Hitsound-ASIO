@@ -15,7 +15,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1
 ```
 
-This builds the native configuration tool, launcher, backend and hook; the .NET bridge; and the optional stereo device checker. It also runs nine native regression executables, the managed tiered-contract self-test and a graph cache/scratch probe (source changes, nesting, re-entry, parallel calls, weak-reference collection and cycles). Each test process has a 120-second deadline and saved stdout/stderr; pass `-TestTimeoutSeconds` to `Test-Core.ps1` to adjust it. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
+This builds the native configuration tool, launcher, backend and hook; the .NET bridge; and the optional stereo device checker. It also runs eleven native/core invocations (nine regression programs and two modes of the wake benchmark), the managed tiered-contract self-test and a graph cache/scratch probe (source changes, nesting, re-entry, parallel calls, weak-reference collection and cycles). Each test process has a 120-second deadline and saved stdout/stderr; pass `-TestTimeoutSeconds` to `Test-Core.ps1` to adjust it. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
 
 Export an untouched portable folder and ZIP:
 
@@ -66,3 +66,15 @@ See [AUDIO_CONTRACT.md](AUDIO_CONTRACT.md) for the schema, mode boundaries, cand
 .\tools\contract\Update-AudioContract.ps1 -ClientDirectory C:\path\to\client
 dotnet run --project .\tests\AudioContractProbe -c Release -- --tiered-client-test C:\path\to\client .\artifacts\contract-mutations
 ```
+
+## Reproduce the synthetic wake measurement
+
+In the same x64 developer shell, the core runner compiles `tests/WakeLatencyProbe.cpp` and runs `--old` and `--new` in separate processes. To repeat only this measurement:
+
+```powershell
+cl /nologo /utf-8 /std:c++17 /EHsc /O2 /MT tests\WakeLatencyProbe.cpp /Fetests\bin\wake-latency.exe /Fotests\bin\wake-latency.obj /link winmm.lib
+.\tests\bin\wake-latency.exe --old
+.\tests\bin\wake-latency.exe --new
+```
+
+Only the backend owns the 1 ms timer request, paired by RAII on return. The hook signals after publishing the queue tail and releasing queueLock. The worker drains the queue and uses a 5 ms timed wait so idle heartbeat/config/FMOD maintenance continues. The missing-event fallback remains Sleep(1). See [VERIFICATION.md](VERIFICATION.md) for measurements and limits.

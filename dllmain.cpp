@@ -15,6 +15,7 @@
 #include "live_attach.h"
 #include "managed_host.h"
 #include "async_text_log.h"
+#include "event_wake.h"
 
 using namespace std;
 
@@ -113,6 +114,7 @@ static fpBASS_Mixer_ChannelRemove pOrigBASS_Mixer_ChannelRemove = NULL;
 
 static struct sharepool *MyPool = NULL;
 static HANDLE hMapFile = NULL;
+static HANDLE hookWake = nullptr;
 static LPVOID lpBase = NULL;
 static CRITICAL_SECTION queueLock;
 static CRITICAL_SECTION stateLock;
@@ -293,15 +295,6 @@ static void logPrintf(const char *format, ...)
     if (hookTextLog) hookTextLog->write("%s",buffer);
 }
 
-static double CPUclock()
-{
-    LARGE_INTEGER nFreq;
-    LARGE_INTEGER t1;
-    QueryPerformanceFrequency(&nFreq);
-    QueryPerformanceCounter(&t1);
-    return t1.QuadPart * 1000.0 / nFreq.QuadPart;
-}
-
 static bool pushEvent(const Event &event)
 {
     if (MyPool == NULL || !MyPool->backendReady)
@@ -318,11 +311,15 @@ static bool pushEvent(const Event &event)
         return false;
     }
 
-    MyPool->events[MyPool->tail] = event;
+    Event queued = event;
+    if (queued.type == EVENT_CHANNEL_STATE && MyPool->diagnosticsEnabled)
+        queued.data.channelState.time = asio::qpcMilliseconds();
+    MyPool->events[MyPool->tail] = queued;
     MemoryBarrier();
     MyPool->tail = next;
 
     LeaveCriticalSection(&queueLock);
+    if (hookWake) SetEvent(hookWake);
     return true;
 }
 
@@ -611,7 +608,7 @@ static bool publishChannelState(HCHANNEL channel, DWORD state)
     event.generation = channelGeneration(channel);
     event.data.channelState.channel = channel;
     event.data.channelState.state = state;
-    event.data.channelState.time = DETAILOUTPUT ? CPUclock() : 0;
+    event.data.channelState.time = 0;
     EnterCriticalSection(&stateLock);
     auto current = channelInfoMap.find(channel);
     if (current != channelInfoMap.end())
@@ -1107,7 +1104,7 @@ extern "C" __declspec(dllexport) void initDLL()
     char poolName[128];
     snprintf(poolName, sizeof(poolName), "Local\\OsuAsioV2_%lu", GetCurrentProcessId());
     hMapFile = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, poolName);
-    lpBase = MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, 0);
+    lpBase = hMapFile ? MapViewOfFile(hMapFile, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(sharepool)) : nullptr;
     if (!(hMapFile && lpBase))
     {
         logPrintf("[ASIO Hook] ShareMemory Failed\n");
@@ -1117,6 +1114,9 @@ extern "C" __declspec(dllexport) void initDLL()
     MyPool = (struct sharepool *)lpBase;
     if (MyPool->magic != ASIO_PROTOCOL_MAGIC || MyPool->targetPid != GetCurrentProcessId())
         return;
+    wchar_t wakeName[80];
+    asio::wakeEventName(wakeName, GetCurrentProcessId());
+    hookWake = OpenEventW(EVENT_MODIFY_STATE, FALSE, wakeName);
 
     if (MH_Initialize() != MH_OK)
     {
@@ -1283,6 +1283,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
             UnmapViewOfFile(lpBase);
         if (hMapFile != NULL)
             CloseHandle(hMapFile);
+        if (hookWake) CloseHandle(hookWake);
 
         if (locksInitialised)
         {
