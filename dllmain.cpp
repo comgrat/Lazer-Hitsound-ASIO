@@ -70,6 +70,7 @@ struct ChannelInfo
     float sampleGain = 0;
     DWORD generation = 0;
     DWORD incarnation = 0; // Original allocation identity survives only explicit restart epochs.
+    unsigned long long playbackRevision = 0; // Protected by stateLock; changes on same-generation starts.
     asio::RoutingState routing;
     bool restorePending = false;
 
@@ -145,6 +146,7 @@ extern "C" __declspec(dllexport) DWORD AsioBridgeTrace(DWORD index)
 static unordered_map<HSAMPLE, SampleInfo> sampleInfoMap;
 static unordered_map<HCHANNEL, ChannelInfo> channelInfoMap;
 
+static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info);
 static bool publishChannelState(HCHANNEL channel, DWORD state);
 static void logPrintf(const char *format, ...);
 
@@ -477,42 +479,65 @@ static void ensureSamplePublished(HSAMPLE sample)
         logPrintf("[ASIO Hook] ensureSamplePublished retry_failed sample=%lu\n", (unsigned long)sample);
 }
 
-static DWORD WINAPI monitorChannels(LPVOID)
+struct MonitorSnapshot
 {
-    const DWORD BASS_ACTIVE_PLAYING = 1;
-    const DWORD BASS_ACTIVE_STALLED = 2;
+    HCHANNEL channel;
+    DWORD generation;
+    unsigned long long playbackRevision;
+    bool playing;
+};
 
-    while (pollerRunning)
+static void monitorChannelsOnce(std::vector<MonitorSnapshot> &pending)
+{
+    pending.clear();
+    EnterCriticalSection(&stateLock);
+    for (const auto &entry : channelInfoMap)
     {
-        EnterCriticalSection(&stateLock);
-        for (auto &entry : channelInfoMap)
-        {
-            if (entry.second.restorePending)
-                restoreNativeVolume(entry.first, entry.second);
-            if (entry.second.routing.suppressNative() && !backendAlive())
-            {
-                publishChannelState(entry.first, CHANNEL_STATE_PAUSED);
-                InterlockedExchange(&MyPool->backendReady, 0);
-                entry.second.routing.failover();
-                restoreNativeVolume(entry.first, entry.second);
-            }
-            if (!entry.second.routing.playing)
-                continue;
-            DWORD active = pOrigBASS_ChannelIsActive != NULL ? pOrigBASS_ChannelIsActive(entry.first) : 0;
-            bool shouldPlay = active == BASS_ACTIVE_PLAYING || active == BASS_ACTIVE_STALLED;
+        const auto &info = entry.second;
+        if (info.routing.playing || info.routing.suppressNative() || info.restorePending)
+            pending.push_back({entry.first, info.generation, info.playbackRevision, info.routing.playing});
+    }
+    LeaveCriticalSection(&stateLock);
 
-            if (!shouldPlay && !entry.second.paused)
+    for (const auto &snapshot : pending)
+    {
+        // Queries may stall or re-enter BASS. No shared state lock is held.
+        DWORD active = snapshot.playing && pOrigBASS_ChannelIsActive
+            ? pOrigBASS_ChannelIsActive(snapshot.channel) : 0;
+        EnterCriticalSection(&stateLock);
+        auto current = channelInfoMap.find(snapshot.channel);
+        if (current != channelInfoMap.end() && current->second.generation == snapshot.generation &&
+            current->second.playbackRevision == snapshot.playbackRevision)
+        {
+            auto &info = current->second;
+            if (info.restorePending) restoreNativeVolume(snapshot.channel, info);
+            if (info.routing.suppressNative() && !backendAlive())
             {
-                entry.second.paused = true;
-                entry.second.routing.pause();
-                publishChannelState(entry.first, CHANNEL_STATE_PAUSED);
+                publishChannelStateLocked(snapshot.channel, CHANNEL_STATE_PAUSED, info);
+                if (MyPool) InterlockedExchange(&MyPool->backendReady, 0);
+                info.routing.failover();
+                restoreNativeVolume(snapshot.channel, info);
+            }
+            bool shouldPlay = active == 1 || active == 2;
+            if (snapshot.playing && info.routing.playing && !shouldPlay && !info.paused)
+            {
+                info.paused = true;
+                info.routing.pause();
+                publishChannelStateLocked(snapshot.channel, CHANNEL_STATE_PAUSED, info);
             }
         }
         LeaveCriticalSection(&stateLock);
+    }
+}
 
+static DWORD WINAPI monitorChannels(LPVOID)
+{
+    std::vector<MonitorSnapshot> pending;
+    while (pollerRunning)
+    {
+        monitorChannelsOnce(pending);
         Sleep(1);
     }
-
     return 0;
 }
 
@@ -552,38 +577,37 @@ static void publishChannelUpdated(HCHANNEL channel, DWORD mask, const ChannelInf
     pushEvent(event);
 }
 
-static bool publishChannelState(HCHANNEL channel, DWORD state)
+static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info)
 {
-    Event event;
-    memset(&event, 0, sizeof(event));
+    Event event = {};
     event.type = EVENT_CHANNEL_STATE;
-    event.generation = channelGeneration(channel);
+    event.generation = info.generation;
     event.data.channelState.channel = channel;
     event.data.channelState.state = state;
-    event.data.channelState.time = 0;
-    EnterCriticalSection(&stateLock);
-    auto current = channelInfoMap.find(channel);
-    if (current != channelInfoMap.end())
-    {
-        event.generation = current->second.generation;
-        event.data.channelState.sample = current->second.sample;
-        event.data.channelState.volume = current->second.sampleGain;
-        event.data.channelState.pan = current->second.pan;
-        event.data.channelState.frequency = current->second.frequency;
-        event.data.channelState.looping = current->second.looping;
-    }
+    event.data.channelState.sample = info.sample;
+    event.data.channelState.volume = info.sampleGain;
+    event.data.channelState.pan = info.pan;
+    event.data.channelState.frequency = info.frequency;
+    event.data.channelState.looping = info.looping;
     bool accepted = pushEvent(event);
     if (accepted && state == CHANNEL_STATE_PLAYING) traceCount(11);
     if (accepted)
         logPrintf("{\"event\":\"%s\",\"channel\":%lu,\"generation\":%lu,\"route\":\"external\",\"gain\":%.6f,\"source\":\"hook_queue\",\"tick_ms\":%llu,\"sample\":%lu}\n",
             state == CHANNEL_STATE_PLAYING ? "start" : "pause", (unsigned long)channel,
-            (unsigned long)event.generation, event.data.channelState.volume, GetTickCount64(),
-            (unsigned long)event.data.channelState.sample);
-    if (!accepted && current != channelInfoMap.end())
+            (unsigned long)event.generation, info.sampleGain, GetTickCount64(), (unsigned long)info.sample);
+    if (!accepted)
     {
-        current->second.routing.failover();
-        restoreNativeVolume(channel, current->second);
+        info.routing.failover();
+        restoreNativeVolume(channel, info);
     }
+    return accepted;
+}
+
+static bool publishChannelState(HCHANNEL channel, DWORD state)
+{
+    EnterCriticalSection(&stateLock);
+    auto current = channelInfoMap.find(channel);
+    bool accepted = current != channelInfoMap.end() && publishChannelStateLocked(channel, state, current->second);
     LeaveCriticalSection(&stateLock);
     return accepted;
 }
@@ -601,6 +625,9 @@ static void publishChannelRemoved(HCHANNEL channel)
 // Caller holds stateLock. Never infer playback from a decoding channel's active state.
 static void startExternal(HCHANNEL channel, ChannelInfo &info)
 {
+    // Pause/resume need not create a generation. Invalidate an unlocked monitor
+    // observation even when this is a repeated start for the same lifetime.
+    ++info.playbackRevision;
     bool alive = backendAlive(), ready = sampleReady(info.sample), queue = queueAvailable();
     traceCount(4);
     if (!info.eligible) traceCount(5);
@@ -887,6 +914,8 @@ BOOL WINAPI MyBASS_ChannelStop(DWORD handle)
 
 BOOL WINAPI MyBASS_ChannelSetAttribute(DWORD handle, DWORD attrib, float value)
 {
+    if (attrib != BASS_ATTRIB_VOL && attrib != BASS_ATTRIB_PAN && attrib != BASS_ATTRIB_FREQ)
+        return pOrigBASS_ChannelSetAttribute(handle, attrib, value);
     EnterCriticalSection(&stateLock);
     auto before = channelInfoMap.find(handle);
     float nativeValue = attrib == BASS_ATTRIB_VOL && before != channelInfoMap.end() && before->second.routing.suppressNative() ? 0 : value;
@@ -929,6 +958,7 @@ BOOL WINAPI MyBASS_ChannelSetAttribute(DWORD handle, DWORD attrib, float value)
 
 DWORD WINAPI MyBASS_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 {
+    if (!(mask & BASS_SAMPLE_LOOP)) return pOrigBASS_ChannelFlags(handle, flags, mask);
     DWORD result = pOrigBASS_ChannelFlags(handle, flags, mask);
     if (result == DWORD(-1))
         return result;
@@ -972,6 +1002,7 @@ BOOL WINAPI MyBASS_Mixer_StreamAddChannel(DWORD handle, DWORD channel, DWORD fla
 
 DWORD WINAPI MyBASS_Mixer_ChannelFlags(DWORD handle, DWORD flags, DWORD mask)
 {
+    if (!(mask & BASS_MIXER_CHAN_PAUSE)) return pOrigBASS_Mixer_ChannelFlags(handle, flags, mask);
     if ((mask & BASS_MIXER_CHAN_PAUSE) && !(flags & BASS_MIXER_CHAN_PAUSE)) traceCount(10);
     if ((mask & BASS_MIXER_CHAN_PAUSE) && !(flags & BASS_MIXER_CHAN_PAUSE))
         muteBeforeStart(handle);

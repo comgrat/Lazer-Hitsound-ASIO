@@ -49,3 +49,11 @@ FMOD 2.02.24's original agreement and upstream project-wide licensing need authe
 The backend parses settings by key and publishes startupDebug before backendReady=1. The hook validates and opens the session mapping before reading this immutable startup choice or starting AsyncTextLog. Log paths use wide characters. DllMain starts the initialization thread and performs no config/log file I/O; readValue, initDebugLogSetting and the ANSI config/log path cache were removed.
 
 A1 reserves the complete round2 layout so the protocol magic changes once, from 0x41534932 to **0x41534933**. The fields after head/tail are startupDebug, diagnosticsEnabled, failureHead/failureTail and a 256-entry channel/generation failure ring, followed by the existing sample ACK and event arrays. The native backend and hook must be rebuilt and delivered together. The managed bridge uses its existing separate attachment ABI and does not read this native sharepool layout. The event Local\OsuAsioV2Wake_<pid> is a separate kernel object.
+
+## Round2 A3 monitor and hook lock scope
+
+Mixer_ChannelFlags without a PAUSE mask, ChannelFlags without a LOOP mask and ChannelSetAttribute outside VOL/PAN/FREQ pass directly to their originals before taking stateLock. VOL remains serialized because native suppression is part of route ownership.
+
+The monitor copies channel/generation/play state and a playback revision under stateLock, queries BASS_ChannelIsActive outside it, then revalidates handle, generation and playback revision before writing state or publishing an event. Free/reuse or same-generation pause/resume during the query discards that observation. A named locked publisher builds the event from the revalidated ChannelInfo.
+
+Native volume restoration and the remaining mutating hook calls keep their existing lock scope. They serialize ownership and volume writes against allocation/restart; moving these setters outside the lock needs a per-channel operation token or a handle-lifetime fence, then a revalidation/repair pass. A future change should profile lock duration and add controlled release/reuse and BASS re-entry tests before narrowing these sections. Windows CRITICAL_SECTION supports recursive entry; the locked publisher makes the ownership requirement explicit.

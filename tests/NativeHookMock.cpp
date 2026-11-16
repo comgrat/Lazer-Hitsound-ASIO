@@ -79,6 +79,7 @@ sharepool *g_pool = nullptr;
 // the original BASS call, another thread must not be able to enter stateLock.
 std::atomic<bool> g_probeLockDuringSetAttribute{false};
 std::atomic<int> g_probeLockResult{-1}; // 0 = blocked (good), 1 = entered (bad)
+std::function<void(DWORD)> g_activeFault;
 
 void fail(const char *file, int line, const std::string &message)
 {
@@ -208,9 +209,15 @@ BOOL WINAPI MockBASS_ChannelStop(DWORD)
     return TRUE;
 }
 
-DWORD WINAPI MockBASS_ChannelIsActive(DWORD)
+DWORD WINAPI MockBASS_ChannelIsActive(DWORD handle)
 {
     ++g_mock.isActiveCalls;
+    if (g_activeFault)
+    {
+        auto fault = std::move(g_activeFault);
+        g_activeFault = {};
+        fault(handle);
+    }
     return g_mock.active;
 }
 
@@ -334,6 +341,7 @@ void resetFixture()
 
     debugLogEnabled = 0;
     traceEnabled = false;
+    g_activeFault = {};
     g_mock = MockBass{};
     installMocks();
 }
@@ -934,6 +942,107 @@ void test_v2_context_rejects_stale_generation_after_handle_reuse()
 
 // Two sample handles separated by exactly 4096 share a slot index. Full-handle
 // probing must keep both ACKs alive and must not report a false hit for a third.
+void test_unrelated_queries_bypass_state_lock()
+{
+    resetFixture();
+    Fixture fixture = createChannel(true, 0.25f);
+    clearEvents();
+    HANDLE locked = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::thread owner([&] {
+        EnterCriticalSection(&stateLock);
+        SetEvent(locked);
+        WaitForSingleObject(release, 2000);
+        LeaveCriticalSection(&stateLock);
+    });
+    WaitForSingleObject(locked, 2000);
+    HANDLE complete = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    std::thread query([&] {
+        MyBASS_Mixer_ChannelFlags(fixture.channel, 0, 0);
+        MyBASS_ChannelFlags(fixture.channel, 0, 0);
+        MyBASS_ChannelSetAttribute(fixture.channel, 999, 0.5f);
+        SetEvent(complete);
+    });
+    DWORD completed = WaitForSingleObject(complete, 500);
+    SetEvent(release);
+    owner.join();
+    query.join();
+    CHECK_EQ(completed, WAIT_OBJECT_0);
+    CHECK_EQ(MyPool->head, MyPool->tail);
+    CHECK_FALSE(channelSnapshot(fixture.channel).suppressNative);
+    CloseHandle(complete);
+    CloseHandle(locked);
+    CloseHandle(release);
+}
+
+void test_monitor_revalidates_handle_after_unlocked_query()
+{
+    for (bool reuse : {false, true})
+    {
+        resetFixture();
+        Fixture fixture = createChannel(true, 0.25f);
+        startExternal(fixture, 0.5f);
+        clearEvents();
+        bool unlocked = false;
+        g_activeFault = [&](DWORD handle) {
+            std::thread mutation([&] {
+                if (TryEnterCriticalSection(&stateLock))
+                {
+                    unlocked = true;
+                    channelInfoMap.erase(handle);
+                    if (reuse)
+                    {
+                        ChannelInfo replacement;
+                        replacement.generation = fixture.generation + 100;
+                        replacement.routing.route = asio::Route::External;
+                        replacement.routing.playing = true;
+                        replacement.paused = false;
+                        channelInfoMap[handle] = replacement;
+                    }
+                    LeaveCriticalSection(&stateLock);
+                }
+            });
+            mutation.join();
+            g_mock.active = 0;
+        };
+        std::vector<MonitorSnapshot> pending;
+        monitorChannelsOnce(pending);
+        CHECK_TRUE(unlocked);
+        CHECK_EQ(MyPool->head, MyPool->tail);
+        if (reuse) CHECK_TRUE(channelInfoMap.at(fixture.channel).routing.playing);
+        else CHECK_TRUE(channelInfoMap.count(fixture.channel) == 0);
+    }
+}
+
+void test_monitor_ignores_inactive_result_after_same_generation_resume()
+{
+    resetFixture();
+    Fixture fixture = createChannel(true, 0.25f);
+    startExternal(fixture, 0.5f);
+    clearEvents();
+    DWORD generation = channelGeneration(fixture.channel);
+    auto revision = channelInfoMap.at(fixture.channel).playbackRevision;
+    bool resumed = false;
+    g_activeFault = [&](DWORD handle) {
+        MyBASS_Mixer_ChannelFlags(handle, BASS_MIXER_CHAN_PAUSE, BASS_MIXER_CHAN_PAUSE);
+        MyBASS_Mixer_ChannelFlags(handle, 0, BASS_MIXER_CHAN_PAUSE);
+        resumed = true;
+        // Model an inactive observation already sampled before the resume.
+        g_mock.active = 0;
+    };
+    std::vector<MonitorSnapshot> pending;
+    monitorChannelsOnce(pending);
+    auto events = eventsSnapshot();
+    CHECK_TRUE(resumed);
+    CHECK_EQ(channelGeneration(fixture.channel), generation);
+    CHECK_TRUE(channelInfoMap.at(fixture.channel).playbackRevision != revision);
+    CHECK_TRUE(channelInfoMap.at(fixture.channel).routing.playing);
+    CHECK_FALSE(channelInfoMap.at(fixture.channel).paused);
+    CHECK_TRUE(channelSnapshot(fixture.channel).suppressNative);
+    CHECK_EQ(countState(events, CHANNEL_STATE_PAUSED), 1);
+    CHECK_EQ(countState(events, CHANNEL_STATE_PLAYING), 1);
+}
+
 void test_shared_debug_matches_keyed_settings()
 {
     resetFixture();
@@ -1223,6 +1332,9 @@ int main()
          test_resume_without_sample_ack_must_not_start_external},
         {"v2_context_rejects_stale_generation_after_handle_reuse",
          test_v2_context_rejects_stale_generation_after_handle_reuse},
+        {"unrelated_queries_bypass_state_lock", test_unrelated_queries_bypass_state_lock},
+        {"monitor_revalidates_handle_after_unlocked_query", test_monitor_revalidates_handle_after_unlocked_query},
+        {"monitor_ignores_inactive_result_after_same_generation_resume", test_monitor_ignores_inactive_result_after_same_generation_resume},
         {"shared_debug_matches_keyed_settings", test_shared_debug_matches_keyed_settings},
         {"wake_and_diagnostic_timestamps", test_wake_and_diagnostic_timestamps},
         {"sample_ack_handle_collision_does_not_false_hit",
