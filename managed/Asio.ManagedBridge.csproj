@@ -13,6 +13,7 @@
     <Compile Include="AudioReflection.cs" />
     <Compile Include="AudioContract.cs" />
     <Compile Include="TieredAudioContract.cs" />
+    <Compile Include="ContractProjection.cs" />
     <Compile Include="ContractSettings.cs" />
     <Compile Include="ContractSession.cs" />
     <Compile Include="LiveEntry.cs" />

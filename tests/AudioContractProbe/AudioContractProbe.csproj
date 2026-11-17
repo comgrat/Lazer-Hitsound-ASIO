@@ -11,6 +11,7 @@
     <!-- Compile the reviewed production class itself; do not duplicate it. -->
     <Compile Include="..\..\managed\AudioContract.cs" Link="AudioContract.cs" />
     <Compile Include="..\..\managed\TieredAudioContract.cs" Link="TieredAudioContract.cs" />
+    <Compile Include="..\..\managed\ContractProjection.cs" Link="ContractProjection.cs" />
     <Compile Include="..\..\managed\ContractSettings.cs" Link="ContractSettings.cs" />
     <Compile Include="..\..\managed\ContractSession.cs" Link="ContractSession.cs" />
     <PackageReference Include="Mono.Cecil" Version="0.11.6" />

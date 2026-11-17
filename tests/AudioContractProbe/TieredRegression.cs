@@ -53,6 +53,11 @@ internal static class TieredRegression
         // under a catalog that explicitly declares their inspected type roots.
         // The integration command needs a compatible client and mutates copies.
         if(args.Length>0)return RealCases(args[0],args.Length>1?args[1]:Path.Combine(Path.GetTempPath(),"AsioContract_"+Guid.NewGuid()));
+        var revised=policy with {ProjectionRevision=2};
+        var revisedCatalog=catalog with {Profiles=new[]{revised}};
+        Check(AudioContract.EvaluateCore(framework,game,AudioContract.ContractMode.Strict,revisedCatalog,InspectFixture).Accepted,"revision2 synthetic exact accepts");
+        Check(!AudioContract.EvaluateCore(Build("osu.Framework",reorder:true),game,AudioContract.ContractMode.Adaptive,revisedCatalog,InspectFixture).Accepted,"revision2 synthetic changed order rejects");
+        Check(!AudioContract.EvaluateCore(Build("osu.Framework",anchorBreak:true),game,AudioContract.ContractMode.Adaptive,revisedCatalog,InspectFixture).Accepted,"revision2 synthetic extra computation rejects");
         Console.WriteLine("Tiered fixture projections checks="+checks+" failures=0");return 0;
     }
     static (Assembly F,Assembly G,AssemblyLoadContext Context) Load(string client,string? frameworkOverride=null,string? gameOverride=null,string? bassOverride=null)
@@ -97,6 +102,7 @@ internal static class TieredRegression
                 var strict=AudioContract.Evaluate(target.F,target.G,AudioContract.ContractMode.Strict);
                 var adaptive=AudioContract.Evaluate(target.F,target.G,AudioContract.ContractMode.Adaptive);
                 Check(!strict.Accepted,mutation.Name+" Strict rejects");
+                if(adaptive.Accepted!=mutation.Adaptive)Console.WriteLine("CONTRACT_DETAIL "+JsonSerializer.Serialize(adaptive,AudioContract.JsonOptions));
                 Check(adaptive.Accepted==mutation.Adaptive,mutation.Name+" Adaptive expectation");
                 if(mutation.Adaptive)Check(adaptive.Status==AudioContract.MatchStatus.AdaptiveMatch,mutation.Name+" Adaptive compatibility status");
                 else Check(adaptive.StructuralErrors.Length+adaptive.SemanticErrors.Length>0,mutation.Name+" fails before exact tier");

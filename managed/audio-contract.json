@@ -3,6 +3,7 @@
   "profiles": [
     {
       "id": "audio-v1",
+      "projectionRevision": 2,
       "structure": [
         {
           "id": "osu.Framework.Audio.AudioAdjustments::type:",

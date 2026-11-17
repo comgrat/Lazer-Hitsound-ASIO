@@ -14,7 +14,9 @@ Both modes require Tier 1 and Tier 2. Strict additionally requires Tier 3. A hit
 2. **Critical semantic projection:** metadata operands are resolved to member identities; branch/switch targets are normalized; constants, arithmetic, call/field order, locals and exception-handling ranges are retained. Only NOPs and short/long branch encoding differences are ignored in the critical methods. A set of token names is insufficient: adding a dead call, exchanging play/pause operations or replacing multiplication with addition must fail.
 3. **Exact reviewed pair:** the v1.0 normalized per-type implementation hashes are retained, with multiple reviewed Game/Framework combinations. Version and MVID are recorded as evidence, not used alone as compatibility identities. Both assembly snapshots must match the same reviewed entry and its policy.
 
-Adaptive is deliberately conservative. It tolerates changes to methods outside the critical anchor set and NOP drift in an anchor. Changes to a critical method's logging, control flow, locals or compiler-generated layout can still require review. It does not automatically support every small client update. This bounded projection is not a general semantic-equivalence solver.
+Adaptive is deliberately conservative. Projection revision 2 adds a narrow diagnostic slice: at the entry of AudioManager constructors, BassAudioMixer.createMixer and DrawableRuleset construction/load, an isolated `ldstr; call Console.WriteLine(string)` may be ignored only when no branch or exception boundary enters that pair. Literal input, empty entry stack and unused void result are required. Other logging, data dependencies, locals, branches, arithmetic and exception ranges remain checked; this is not general semantic equivalence.
+
+Generated anchor members are selected within their declaring context by their complete normalized signature/body and captured field operations. Exactly one candidate must match. A consistent one-to-one ordinal mapping is established from these anchors and applied at exact operand positions in their callers. Renumbering alone may pass Adaptive, while changed arithmetic, swapped call targets, merged identities and ambiguous duplicate bodies reject. Tier1 uniqueness checks remain intact. Exact Tier3 implementation hashes still include all original names and instructions.
 
 ## Schema
 
@@ -36,7 +38,7 @@ Adaptive is deliberately conservative. It tolerates changes to methods outside t
 }
 ```
 
-The shipped profile has 80 structural rules and 41 critical method projections. Reviewed combinations include Game1026/Framework1019 and Game1110/Framework1030. Runtime validation reads the **embedded** catalog; editing a loose JSON beside a released DLL does not whitelist a client. Rebuild and redistribute the managed bridge after reviewing a catalog update.
+The optional profile field `projectionRevision` defaults to 1 (legacy strict projections); value 2 explicitly enables the bounded slice and generated-context mapping described above. Other values reject. The schema stays at version 2 and the reviewed exact entries are unchanged. The shipped profile has 80 structural rules and 41 critical method projections. Reviewed combinations include Game1026/Framework1019 and Game1110/Framework1030. Runtime validation reads the **embedded** catalog; editing a loose JSON beside a released DLL does not whitelist a client. Rebuild and redistribute the managed bridge after reviewing a catalog update.
 
 ## Extract a candidate
 
@@ -66,4 +68,4 @@ For metadata-only integration against a compatible client:
 dotnet run --project .\tests\AudioContractProbe -c Release -- --tiered-client-test C:\path\to\client .\artifacts\contract-mutations
 ```
 
-Mutations are written only to the supplied test-output directory; original DLL hashes are verified. Cases include harmless anchor NOPs, an unrelated helper, a changed BASS handle type, a changed target signature, a broken zero-volume getter, reversed mixer pause direction, aggregate multiplication replaced with addition, missing mixer creation, altered GameplayMixer name/identifier propagation, interface removal, and BASS enum value/underlying-type changes. Mutated audio methods are never invoked.
+Round4 adds mutations for generated member/type/cache renumbering, renumbering with changed arithmetic, swapped delegate call targets, an ambiguous identical generated body, an isolated entry diagnostic, a branch entering the diagnostic and extra computation beside it. The current local client's real suite passed 98 assertions. Mutations are written only to the supplied test-output directory; original DLL hashes are verified. Cases include harmless anchor NOPs, an unrelated helper, a changed BASS handle type, a changed target signature, a broken zero-volume getter, reversed mixer pause direction, aggregate multiplication replaced with addition, missing mixer creation, altered GameplayMixer name/identifier propagation, interface removal, and BASS enum value/underlying-type changes. Mutated audio methods are never invoked.

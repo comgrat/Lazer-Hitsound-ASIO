@@ -10,7 +10,7 @@ public static partial class AudioContract
     public enum MatchStatus { Failed, ExactMatch, AdaptiveMatch }
     public sealed record MemberRule(string Id, string Assembly, string Type, string Kind, string Name, string[] Signatures);
     public sealed record AnchorRule(string Id, string Assembly, string Type, string Method, string[] Instructions, string? Signature = null);
-    public sealed record PolicyProfile(string Id, MemberRule[] Structure, AnchorRule[] Anchors);
+    public sealed record PolicyProfile(string Id, MemberRule[] Structure, AnchorRule[] Anchors, int ProjectionRevision = 1);
     public sealed record ReviewedContract(string Id, string Policy, Snapshot Framework, Snapshot Game);
     public sealed record Catalog(int SchemaVersion, PolicyProfile[] Profiles, ReviewedContract[] ReviewedContracts);
     public sealed record CheckResult(MatchStatus Status, string[] StructuralErrors, string[] SemanticErrors, string[] ExactDifferences, string? Policy, string? ReviewedId)
@@ -28,7 +28,7 @@ public static partial class AudioContract
     {
         var catalog=JsonSerializer.Deserialize<Catalog>(stream,JsonOptions) ?? throw new InvalidDataException("Empty audio contract catalog.");
         if(catalog.SchemaVersion!=2 || catalog.Profiles is not { Length: >0 } || catalog.ReviewedContracts is null ||
-           catalog.Profiles.Any(p=>p==null||string.IsNullOrWhiteSpace(p.Id)||p.Structure is not {Length: >0}||p.Anchors is not {Length: >0}||
+           catalog.Profiles.Any(p=>p==null||p.ProjectionRevision is not (1 or 2)||string.IsNullOrWhiteSpace(p.Id)||p.Structure is not {Length: >0}||p.Anchors is not {Length: >0}||
                p.Structure.Any(r=>r==null||string.IsNullOrWhiteSpace(r.Id)||string.IsNullOrWhiteSpace(r.Assembly)||string.IsNullOrWhiteSpace(r.Type)||
                    r.Kind is not ("type" or "field" or "property" or "method" or "generated" or "constructor")||r.Signatures is not {Length: >0}||r.Signatures.Any(string.IsNullOrEmpty))||
                p.Anchors.Any(r=>r==null||string.IsNullOrWhiteSpace(r.Id)||string.IsNullOrWhiteSpace(r.Type)||string.IsNullOrWhiteSpace(r.Method)||r.Instructions is not {Length: >0}||r.Instructions.Any(string.IsNullOrEmpty))||
@@ -115,9 +115,9 @@ public static partial class AudioContract
     // are ignored, and branch targets are normalized to non-NOP ordinals. This
     // is deliberately stricter than a token-presence set: dead calls, swapped
     // BASS operations, changed flags and aggregate multiplication fail Tier 2.
-    public static string[] SemanticInstructions(MethodBase method)
+    public static string[] SemanticInstructions(MethodBase method, int projectionRevision = 1)
     {
-        var il=ReadInstructions(method);var meaningful=il.Where(i=>i.OpCode!=OpCodes.Nop).ToArray();
+        var il=ReadInstructions(method);var meaningful=projectionRevision==2?SliceDiagnostics(method,il):il.Where(i=>i.OpCode!=OpCodes.Nop).ToArray();
         int Target(int offset){int index=Array.FindIndex(meaningful,i=>i.Offset>=offset);return index<0?meaningful.Length:index;}
         var body=method.GetMethodBody()!;
         var prefix=new List<string>{"method "+Signature(method),"body init="+body.InitLocals+" locals="+string.Join(",",body.LocalVariables.Select(v=>TypeKey(v.LocalType)+":"+v.IsPinned))};
@@ -150,7 +150,16 @@ public static partial class AudioContract
     static string[] SemanticErrors(Assembly[] audio,PolicyProfile profile)
     {
         var errors=new List<string>();
-        foreach(var rule in profile.Anchors){try{var actual=SemanticInstructions(ResolveAnchor(FindAssembly(audio,rule.Assembly),rule));if(!actual.SequenceEqual(rule.Instructions,StringComparer.Ordinal))errors.Add(rule.Id+": critical IL/metadata/control-flow projection differs");}catch(Exception e){errors.Add(rule.Id+": "+e.GetType().Name+" "+e.Message);}}
+        ProjectionContext? context=null;
+        if(profile.ProjectionRevision==2) {
+            try{context=new ProjectionContext(audio,profile);}catch(Exception e){return new[]{"Generated anchor resolution: "+e.GetType().Name+" "+e.Message};}
+        }
+        foreach(var rule in profile.Anchors){try{
+            var source=FindAssembly(audio,rule.Assembly);
+            var actual=SemanticInstructions(context==null?ResolveAnchor(source,rule):context.Resolve(source,rule),profile.ProjectionRevision);
+            if(context==null?!actual.SequenceEqual(rule.Instructions,StringComparer.Ordinal):!context.Matches(rule,actual))
+                errors.Add(rule.Id+": critical IL/metadata/control-flow projection differs");
+        }catch(Exception e){errors.Add(rule.Id+": "+e.GetType().Name+" "+e.Message);}}
         return errors.ToArray();
     }
     static bool Exact(Snapshot left,Snapshot right)=>left.Assembly==right.Assembly&&left.Types.Count==right.Types.Count&&left.Types.All(p=>right.Types.TryGetValue(p.Key,out var hash)&&hash==p.Value);
@@ -188,9 +197,10 @@ public static partial class AudioContract
     public static PolicyProfile CapturePolicy(Assembly framework,Assembly game,PolicyProfile template)
     {
         var audio=new[]{framework,game};
+        var context=template.ProjectionRevision==2?new ProjectionContext(audio,template):null;
         return template with {
             Structure=template.Structure.Select(rule=>rule with {Signatures=Signatures(FindAssembly(audio,rule.Assembly),rule)}).ToArray(),
-            Anchors=template.Anchors.Select(rule=>rule with {Instructions=SemanticInstructions(ResolveAnchor(FindAssembly(audio,rule.Assembly),rule))}).ToArray()
+            Anchors=template.Anchors.Select(rule=>rule with {Instructions=SemanticInstructions(context==null?ResolveAnchor(FindAssembly(audio,rule.Assembly),rule):context.Resolve(FindAssembly(audio,rule.Assembly),rule),template.ProjectionRevision)}).ToArray()
         };
     }
     // Used only by the maintenance extractor to capture an observed baseline.
