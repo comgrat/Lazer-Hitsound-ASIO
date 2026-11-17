@@ -1,6 +1,14 @@
 # Verification and limits
 
-This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the source snapshot. Version 1.1.2 keeps the binaries from the listening-tested review-round2 candidate commit `ecaa8c96dfa41c75daac36bc89fa628625a7a409`; release source/docs are tagged separately, and the package manifest records `binary_source_commit`. Earlier release results below remain identified by version.
+This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the source snapshot. Version 1.2.0 preserves the native/managed binaries and launcher scripts from the tested 1.1.3-rc.3 candidate, binary source commit `3e9fee7ea42d8fe5237f4d88fc27519bb271075f`. Release source/docs are tagged separately; the package manifest records `binary_source_commit`. Earlier release results remain identified by version.
+
+## v1.2.0 release session
+
+The user supplied an rc.3 gameplay session on 2026-11-17 and authorized v1.2.0 publication if inspection found no remaining problems. The session used TOPPING Pro USB Audio Device, stereo 48000 Hz, 16 x 2 software buffers and tool volume 100%. Game 2026.1115 / Framework 2026.1114 matched the exact reviewed audio contract. All 1282 external PLAY requests started; missingSample=0, diagnostic drops=0, stderr empty, and shutdown released FMOD normally. Final enqueue-to-handler p50/p95/max was 0.0051/0.0178/0.0764 ms, which is not end-to-end acoustic latency.
+
+One epoch=1 recovery completed during initial loading before the first PLAY; no later recovery occurred during gameplay. Two deferred sample publications succeeded before playback. The available log does not identify the cause of the startup lease interruption. This is documented recovery behavior, not evidence that no interruption ever occurred. staleRejected=1853 records late events rejected by the lifetime guards, not 1853 missing hits. The log cannot establish acoustic quality or exercise every fault path; deterministic regressions cover concurrent heartbeat publication and rejected restarts.
+
+The final rc.3 full build passed 13 native/core programs plus managed probes: AudioLease33, NativeHook348 (28 cases), RecoveryIntegration33, OutputRegression405, DigitalOutput3540; other checks retain the round4 counts below. Portable QA passed 136 checks and multilingual QA 106. The release retains byte-identical native/managed binaries and runtime scripts from this tested candidate.
 
 ## User listening reports
 
