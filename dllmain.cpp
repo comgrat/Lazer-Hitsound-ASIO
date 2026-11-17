@@ -546,7 +546,7 @@ static bool serviceRecovery()
 {
     if(!MyPool || !MyPool->backendReady) return false;
     const DWORD now=GetTickCount();
-    if(MyPool->hookAttached && DWORD(now-DWORD(MyPool->hookHeartbeat))>=250)
+    if(MyPool->hookAttached && !asio::heartbeatFresh(DWORD(MyPool->hookHeartbeat),now))
         asio::requestRecovery(MyPool);
     InterlockedExchange(&MyPool->hookHeartbeat,LONG(now));
     asio::recoveryLeaseValid(MyPool,now);
@@ -987,17 +987,32 @@ BOOL WINAPI MyBASS_ChannelPlay(DWORD handle, BOOL restart)
         }
     }
     bool newPlayback = it!=channelInfoMap.end() && (restart || active==0);
-    // An explicit restart creates a new lifetime after a completed recovery.
-    if(it!=channelInfoMap.end() && restart && backendAlive() &&
-       it->second.allocationEpoch!=DWORD(MyPool->epoch)) {
-        it->second.generation=DWORD(InterlockedIncrement(&nextGeneration));
+    // Prepare suppression before a prospective restart so native cannot leak
+    // the first frames. Keep the old identity until BASS confirms success.
+    const bool recoveryRestart=it!=channelInfoMap.end() && restart && backendAlive() &&
+        it->second.allocationEpoch!=DWORD(MyPool->epoch);
+    ChannelInfo beforeRestart;
+    if(recoveryRestart) {
+        beforeRestart=it->second;
         it->second.allocationEpoch=DWORD(MyPool->epoch);
         it->second.routing=asio::RoutingState{};
     }
+    const DWORD callGeneration=it!=channelInfoMap.end()?it->second.generation:0;
+    const auto callRevision=it!=channelInfoMap.end()?it->second.playbackRevision:0;
     muteBeforeStart(handle);
     BOOL result = pOrigBASS_ChannelPlay(handle, restart);
-    if (!result) { restoreIfNative(handle); LeaveCriticalSection(&stateLock); return result; }
-    if (it != channelInfoMap.end())
+    // An original may re-enter hooks: don't retain an iterator/reference across
+    // the call or roll back state belonging to a different lifetime.
+    it=channelInfoMap.find(handle);
+    const bool sameCall=it!=channelInfoMap.end() && it->second.generation==callGeneration &&
+        it->second.playbackRevision==callRevision;
+    if (!result) {
+        if(recoveryRestart && sameCall) it->second=beforeRestart;
+        restoreIfNative(handle);
+        LeaveCriticalSection(&stateLock);return result;
+    }
+    if(recoveryRestart && sameCall) it->second.generation=DWORD(InterlockedIncrement(&nextGeneration));
+    if (sameCall)
     {
         // A confirmed restart is a new playback lifetime, unlike a stale PLAY
         // message for an ended voice. Keep retirement protection in the backend.

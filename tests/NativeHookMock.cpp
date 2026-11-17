@@ -1481,6 +1481,42 @@ void test_play_query_revalidates_generation_and_revision()
     }
 }
 
+void test_failed_recovery_restart_preserves_native_lifetime()
+{
+    resetFixture();
+    Fixture fixture=createChannel(true,0.25f);
+    startExternal(fixture,0.5f);
+    EnterCriticalSection(&stateLock);
+    auto &info=channelInfoMap.at(fixture.channel);
+    info.routing.failover();
+    const DWORD generation=info.generation;
+    const DWORD allocationEpoch=info.allocationEpoch;
+    InterlockedIncrement(&MyPool->epoch);
+    restoreNativeVolume(fixture.channel,info);
+    LeaveCriticalSection(&stateLock);
+    clearEvents();
+
+    g_mock.playOk=false;
+    CHECK_FALSE(MyBASS_ChannelPlay(fixture.channel,TRUE));
+    CHECK_EQ(channelGeneration(fixture.channel),generation);
+    CHECK_EQ(channelInfoMap.at(fixture.channel).allocationEpoch,allocationEpoch);
+    CHECK_TRUE(routeIs(fixture.channel,asio::Route::Native));
+    CHECK_NEAR(g_mock.nativeVolume[fixture.channel],0.5f,0.0f);
+    CHECK_TRUE(eventsSnapshot().empty());
+
+    g_mock.playOk=true;
+    CHECK_TRUE(MyBASS_ChannelPlay(fixture.channel,FALSE));
+    CHECK_TRUE(routeIs(fixture.channel,asio::Route::Native));
+    CHECK_EQ(channelGeneration(fixture.channel),generation);
+    auto events=eventsSnapshot();
+    CHECK_EQ(countState(events,CHANNEL_STATE_PLAYING),0);
+
+    CHECK_TRUE(MyBASS_ChannelPlay(fixture.channel,TRUE));
+    CHECK_TRUE(channelGeneration(fixture.channel)!=generation);
+    CHECK_EQ(channelInfoMap.at(fixture.channel).allocationEpoch,DWORD(MyPool->epoch));
+    CHECK_TRUE(routeIs(fixture.channel,asio::Route::External));
+}
+
 struct TestCase
 {
     const char *name;
@@ -1528,6 +1564,7 @@ int main()
          test_v2_context_rejects_stale_generation_after_handle_reuse},
         {"unrelated_queries_bypass_state_lock", test_unrelated_queries_bypass_state_lock},
         {"play_query_revalidates_generation_and_revision", test_play_query_revalidates_generation_and_revision},
+        {"failed_recovery_restart_preserves_native_lifetime", test_failed_recovery_restart_preserves_native_lifetime},
         {"monitor_revalidates_handle_after_unlocked_query", test_monitor_revalidates_handle_after_unlocked_query},
         {"monitor_ignores_inactive_result_after_same_generation_resume", test_monitor_ignores_inactive_result_after_same_generation_resume},
         {"loop_failure_restores_only_matching_generation", test_loop_failure_restores_only_matching_generation},

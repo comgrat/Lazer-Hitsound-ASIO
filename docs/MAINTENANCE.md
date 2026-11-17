@@ -86,6 +86,12 @@ A scheduled CI design can fetch a pinned ppy/osu release artifact, record its UR
 
 The optional one-shot tail proposal is also design only. A future event flag must distinguish natural decoder completion from explicit stop/pause/remove; only a non-looping natural-completion orphan could finish externally. Explicit ChannelStop, mixer pause, chart exit and every loop must stop promptly. That distinction needs dedicated event-order and shutdown tests before implementation.
 
+## Follow-up: lease sampling and failed recovery restart
+
+Two boundary defects were reproduced after the round4 candidate. A reader captures `now` before loading a concurrently written heartbeat; a heartbeat one tick ahead used to underflow unsigned age and latch a false recovery. All lease readers now use a common bounded comparison: age below 250 ms is fresh, as is a concurrent lead below 250 ms, including tick wrap. Age or lead at 250 ms still rejects. Expiry remains latched until the handshake completes. AudioLeaseMock reproduces the original four failures and checks both exact boundaries.
+
+An explicit restart after recovery used to publish a new generation/epoch before BASS confirmed success. If BASS rejected the restart, a later ordinary PLAY could incorrectly acquire ASIO. The hook now saves the native lifetime, prepares suppression without committing a generation, and restores it on failure; a confirmed restart commits the new generation. It re-finds the entry after the original call and validates generation/revision before changing bookkeeping, so re-entry cannot leave it using a stale iterator. A regression verifies failed restart, subsequent ordinary PLAY staying native, and a later successful explicit restart.
+
 ## Round4 PLAY query lock revision
 
 The PLAY hook snapshots generation and playbackRevision under stateLock, runs BASS_ChannelIsActive outside the lock, then revalidates both identities before acting. A changed identity takes a serialized retry so a stale inactive result cannot restart a resumed or reused voice. Explicit restart needs no active query. Regression faults mutate state from another thread during the real hook's query: unchanged, same-generation resume, generation replacement and release.
