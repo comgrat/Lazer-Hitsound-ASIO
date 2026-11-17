@@ -2,7 +2,7 @@
 
 The community review of v1.1.0 identified real portability, testing and maintenance costs. This record distinguishes implemented fixes from changes that need a protocol design or external authorization.
 
-## Round5 (local candidate, not hardware validated)
+## Round5 / v1.2.1 (software checks and limited user-session evidence)
 
 ### Implemented and checked in software
 
@@ -20,7 +20,7 @@ The community review of v1.1.0 identified real portability, testing and maintena
 
 ### Design and user validation still pending
 
-Cold-start logs on the user's device must confirm no startup recovery; if recovery occurs, inspect its first-source/age evidence. Actual stateLock maxima require Debug Log gameplay logs. A future design could separate monitor scheduling from lock-held producer stalls, but must keep producer liveness meaningful and cannot merely hide a blocked owner with an unrelated heartbeat. The six-case Hitsound/Effect listening matrix is in [ROUND5_LISTENING.md](ROUND5_LISTENING.md). No Round5 hardware listening result is claimed. This branch is local only and is not authorized for push/tag/release.
+Three successful user attachments on 2026-11-17 showed no startup recovery. Their recorded lock maxima were wait174us, hold167us and native-call149us, far below the lease interval. Two sessions recorded1188 total PLAY requests and1188 starts with missingSample=0; the startup-only session had zero PLAY. One exited with a DSP/hook-heartbeat expiry in its final shutdown status; another lacks a shutdown footer, so orderly cleanup cannot be established for that session. A transient attachment to a short-lived PID failed with Windows error87 before the next PID attached successfully. The generic privilege hint is not a diagnosis of that error. These shutdown/attachment edges remain follow-up work. The six-case Hitsound/Effect listening matrix remains unconfirmed by logs. The user authorized v1.2.1 publication with these limits disclosed. A future design may separate monitor scheduling from lock-held producer stalls, but cannot hide a blocked owner with an unrelated heartbeat.
 
 ## Implemented
 

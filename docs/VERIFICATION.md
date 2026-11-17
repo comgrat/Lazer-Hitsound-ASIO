@@ -1,6 +1,16 @@
 # Verification and limits
 
-This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the source snapshot. Version 1.2.0 preserves the native/managed binaries and launcher scripts from the tested 1.1.3-rc.3 candidate, binary source commit `3e9fee7ea42d8fe5237f4d88fc27519bb271075f`. Release source/docs are tagged separately; the package manifest records `binary_source_commit`. Earlier release results remain identified by version.
+This record distinguishes software checks from user listening reports. Raw investigation logs and machine-specific paths are not published with the source snapshot. Version 1.2.1 preserves the native/managed binaries, runtime scripts and locale catalogs from the user-tested round5 candidate, binary source commit `101eb8bfcc3eeaba391ca3369baee21b71ae8114`. Release source/docs are tagged separately; the package manifest records `binary_source_commit`. Earlier release results remain identified by version.
+
+## v1.2.1 release sessions
+
+The user supplied round5 logs and authorized publication after their review. Three successful attachments had no startup recovery: PID22120 (startup-only, zero PLAY, normal release), PID50664 (993 PLAY/993 starts, missingSample0, normal release and zero diagnostic drops), PID14964 (195 PLAY/195 starts, missingSample0 at the last recorded status). All three successful-session stderr files were empty. The first client was Game1115/Framework1114; subsequent clients were Game1117/Framework1117 and passed ExactMatch.
+
+Limits and retained follow-ups: an intervening PID50380 failed OpenProcess with Windows error87, then PID50664 attached about287ms later. This is consistent with a short-lived process, but logs alone do not prove its cause or a privilege problem. PID50664 recorded cause=dsp/stale=hook/age_ms=250 in its final ready=0 status after bulk sample cleanup, followed immediately by the FMOD release line; there was no gameplay recovery/replay. PID14964's process was no longer running at inspection but its log had no final ready=0/release footer; normal tool cleanup cannot be claimed for that session. The six-case slider matrix is not evidenced by these logs.
+
+Maximum measured lock wait/hold/native-call durations were174/167/149 microseconds. Final queue p50/p95/max for PID50664 was0.0057/0.0427/0.3166ms and for PID14964 was0.0056/0.0448/0.1558ms. These are software queue delays, not acoustic latency. Startup behavior and the recorded playback are healthy in these sessions; this is not a claim of zero remaining issues.
+
+The release keeps byte-identical executable/DLL/script/locale files from the tested candidate. Build/Core14 programs and managed probes, public boundaries32, catalogs708, real contract104, real graph43 and Strict install were previously run on that runtime source; release packaging reruns the136 portable and106 multilingual checks.
 
 ## v1.2.0 release session
 
