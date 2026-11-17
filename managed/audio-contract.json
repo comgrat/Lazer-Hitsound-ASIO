@@ -6,6 +6,16 @@
       "projectionRevision": 2,
       "structure": [
         {
+          "id": "osu.Game.Configuration.OsuSetting::field:HitsoundVolume",
+          "assembly": "osu.Game",
+          "type": "osu.Game.Configuration.OsuSetting",
+          "kind": "field",
+          "name": "HitsoundVolume",
+          "signatures": [
+            "static HitsoundVolume:[osu.Game]osu.Game.Configuration.OsuSetting|literal=True|readonly=False|visibility=Public|value=121"
+          ]
+        },
+        {
           "id": "osu.Framework.Audio.AudioAdjustments::type:",
           "assembly": "osu.Framework",
           "type": "osu.Framework.Audio.AudioAdjustments",

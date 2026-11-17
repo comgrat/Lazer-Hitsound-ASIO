@@ -47,6 +47,11 @@ internal static class ContractMutations
     public static IEnumerable<Mutation> Create(string directory,string output)
     {
         var definitions=new (string Name,string Assembly,bool Adaptive,Action<ModuleDefinition> Edit)[]{
+            ("broken-hitsound-setting-enum","osu.Game",false,m=>Types(m.Types).Single(t=>t.FullName=="osu.Game.Configuration.OsuSetting").Fields.Single(f=>f.Name=="HitsoundVolume").Constant=122),
+            ("broken-hitsound-volume-binding","osu.Game",false,m=>{
+                var load=Types(m.Types).Single(t=>t.FullName=="osu.Game.Rulesets.UI.DrawableRuleset`1").Methods.Single(x=>x.Name=="load");
+                load.Body.Instructions.Single(i=>i.OpCode==OpCodes.Ldc_I4_S&&Convert.ToInt32(i.Operand)==121).Operand=(sbyte)120;
+            }),
             ("renumbered-generated-contexts","osu.Framework",true,m=>RenameGenerated(m)),
             ("renumbered-changed-arithmetic","osu.Framework",false,m=>RenameGenerated(m,arithmetic:true)),
             ("renumbered-swapped-call-targets","osu.Framework",false,m=>RenameGenerated(m,swap:true)),

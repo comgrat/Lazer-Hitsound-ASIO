@@ -216,6 +216,7 @@ public static partial class AudioContract
         Member("osu.Game.Rulesets.UI.DrawableRuleset`1","type","");
         Member("osu.Game.Rulesets.UI.DrawableRuleset`1","field","gameplayMixer");
         Member("osu.Game.Rulesets.UI.DrawableRuleset`1","field","hitsoundVolume");
+        Member("osu.Game.Configuration.OsuSetting","field","HitsoundVolume");
         // Enum values actually used in the native-facing mix/attribute contract.
         foreach(string name in new[]{"Volume","Balance","Frequency","Tempo"})Member("osu.Framework.Audio.AdjustableProperty","field",name);
         foreach(var spec in new[]{("ManagedBass.PlaybackState",new[]{"Stopped","Playing","Stalled","Paused"}),("ManagedBass.ChannelAttribute",new[]{"Volume","Pan","Frequency","Buffer"}),("ManagedBass.BassFlags",new[]{"MixerChanPause","MixerChanBuffer","MixerChanNoRampin","SampleChannelStream","Decode","Loop","MixerNonStop","Default","Float"})}){Member(spec.Item1,"type","");foreach(string name in spec.Item2)Member(spec.Item1,"field",name);}
