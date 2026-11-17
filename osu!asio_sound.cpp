@@ -812,6 +812,8 @@ static DWORD getPID(LPCSTR ProcessName)
     return dwPid;
 }
 
+#include "utf8_log.h"
+
 static char osuExename[256] = "osu!.exe";
 
 int main(int argc, char *argv[])
@@ -820,6 +822,7 @@ int main(int argc, char *argv[])
     // while the game is running, rather than only when this process exits.
     setvbuf(stdout, nullptr, _IONBF, 0);
     SetConsoleOutputCP(CP_UTF8);
+    asio::writeRedirectedUtf8Preamble(stdout);
     ui::initialize();
     bool liveAttach = false;
     DWORD requestedPid = 0;

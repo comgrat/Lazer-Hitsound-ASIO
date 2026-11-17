@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Path $fixtureDirectory|Out-Null
 $cases=@(
  @{name='routing';source='test_routing.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='audio-lease';source='AudioLeaseMock.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='diagnostic-log';source='DiagnosticLogProbe.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='native-hook';source='NativeHookMock.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='native-restart';source='NativeRestartProbe.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='mixer-abi';source='MixerAbiRegression.cpp';fmod=$false;hook=$true;arguments=@()},
@@ -39,4 +40,5 @@ foreach($case in $cases){
 if($failed.Count){throw ('Failed regressions: '+($failed -join ', '))}
 Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\AudioContractProbe\AudioContractProbe.csproj'),'-c','Release','--','--tiered-self-test') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'tiered-contract')
 Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\ManagedGraphProbe\ManagedGraphProbe.csproj'),'-c','Release') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'managed-graph')
-Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed contract/graph probes; hardware output and game startup were not used.')
+Invoke-BoundedProcess -FilePath (Get-Command dotnet.exe).Source -ArgumentList @('run','--project',(Join-Path $repo 'tests\ManagedLogProbe\ManagedLogProbe.csproj'),'-c','Release') -WorkingDirectory $repo -TimeoutSeconds $TestTimeoutSeconds -LogPrefix (Join-Path $output 'managed-log')
+Write-Output ('PASS '+$cases.Count+' native/core regression programs and managed contract/graph/log probes; hardware output and game startup were not used.')

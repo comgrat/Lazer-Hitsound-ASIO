@@ -82,6 +82,12 @@ A scheduled CI design can fetch a pinned ppy/osu release artifact, record its UR
 
 The optional one-shot tail proposal is also design only. A future event flag must distinguish natural decoder completion from explicit stop/pause/remove; only a non-looping natural-completion orphan could finish externally. Explicit ChannelStop, mixer pause, chart exit and every loop must stop promptly. That distinction needs dedicated event-order and shutdown tests before implementation.
 
+## Round4 logging revision
+
+Managed attachment logs and the hook file logger now start new UTF-8 files with one BOM. Append/reopen preserves existing bytes, including older BOM-less logs. The backend emits a preamble only on redirected stdout; interactive consoles and stderr are untouched. This lets Windows PowerShell 5.1 detect UTF-8 while an empty stderr still means no errors. The watcher consumes the preamble using its existing StreamReader.
+
+DiagnosticLogProbe checks the real native file append/reopen paths and redirected status bytes. ManagedLogProbe invokes the production managed writer and checks exact bytes for new, existing BOM and legacy BOM-less files. A real Start-Process redirection fixture also verifies that the watcher recognizes ASIO_READY and leaves stderr empty.
+
 ## Round3 findings from a v1.1.2 user session
 
 One Debug Log=1 session (5.5 minutes, 1625 external PLAY events) produced a 1.6 MB backend log and a 1.4 MB hook log. Queue delay was p50/p95/max 0.0056/0.0143/0.2113 ms with missingSample=0. The logs showed three costs unrelated to audio correctness:

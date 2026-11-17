@@ -53,7 +53,20 @@ public:
         if(!thread){accepting=false;delete[] lines;lines=nullptr;CloseHandle(wake);wake=nullptr;if(owned)fclose(sink);sink=nullptr;return false;}
         return true;
     }
-    bool startFile(const wchar_t* path) { return start(_wfopen(path,L"ab"),true); }
+    bool startFile(const wchar_t* path) {
+        // Startup file I/O runs before the log worker starts, never on a hit.
+        if(thread) return false;
+        FILE* file=_wfopen(path,L"ab");
+        if(!file) return false;
+        if(_fseeki64(file,0,SEEK_END)!=0) { fclose(file);return false; }
+        const auto length=_ftelli64(file);
+        if(length<0) { fclose(file);return false; }
+        if(length==0) {
+            const unsigned char bom[]={0xef,0xbb,0xbf};
+            if(fwrite(bom,1,sizeof(bom),file)!=sizeof(bom)||fflush(file)!=0) { fclose(file);return false; }
+        }
+        return start(file,true);
+    }
     void write(const char* format,...) {
         if(!accepting.load(std::memory_order_acquire)) return;
         char text[1024];va_list args;va_start(args,format);

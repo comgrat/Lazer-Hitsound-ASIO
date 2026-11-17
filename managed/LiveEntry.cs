@@ -3,6 +3,11 @@ using System.Runtime.InteropServices;
 // Called via the documented hostfxr component API inside an existing runtime.
 public static class LiveEntry
 {
+    // StreamWriter emits the preamble only for an empty append stream. Existing
+    // logs, including older BOM-less UTF-8 logs, keep every byte unchanged.
+    internal static TextWriter OpenDiagnosticLog(string path) => TextWriter.Synchronized(
+        new StreamWriter(path, append: true, encoding: new System.Text.UTF8Encoding(true)) { AutoFlush = true });
+
     public static int Initialize(IntPtr argument, int bytes)
     {
         try
@@ -13,8 +18,7 @@ public static class LiveEntry
             UiText.Initialize(root);
             Directory.CreateDirectory(Path.Combine(root, "logs"));
             Bridge.detailedPlayback = File.Exists(Path.Combine(root,"playback-trace.enabled"));
-            Bridge.LogWriter = TextWriter.Synchronized(new StreamWriter(
-                Path.Combine(root, "logs", $"managed-{Environment.ProcessId}.log"), append: true) { AutoFlush = true });
+            Bridge.LogWriter = OpenDiagnosticLog(Path.Combine(root, "logs", $"managed-{Environment.ProcessId}.log"));
             using var session=ContractSession.Open(Environment.ProcessId);
             Bridge.Mode=session?.Mode??ContractSettings.Read(root);
             Bridge.Log("[ASIO attach] "+UiText.Get("managed.attaching",Environment.ProcessId));
