@@ -22,7 +22,7 @@ Five languages are integrated into the same application: **简体中文 · 繁�
 ## Behavior
 
 - Routes identified gameplay hitsounds through the external FMOD ASIO backend, suppressing their corresponding native channels after successful takeover. BGM and UI effects remain native.
-- The in-game Hitsound slider at **0% still allows ASIO hitsounds**. Set `Output Volume` in this tool's `config.ini` to control ASIO volume; **0 mutes ASIO**. Saving updates the volume in about 0.5 seconds.
+- On the reviewed implementations, the in-game Hitsound slider at **0% still allows ASIO hitsounds**. Metadata inspection of Game2026.1115 confirms that HitsoundVolume binds GameplayMixer.Volume, which the bridge excludes from the external gain; the binding and setting value are checked by the contract. This does not establish every future client's slider behavior. Set `Output Volume` in this tool's `config.ini` to control ASIO volume; **0 mutes ASIO**. Saving updates the volume in about 0.5 seconds.
 - Preserves beatmap/sample gain, pan, playback rate and legitimate layered hitsounds. Layered sounds are not deduplicated by sample name or a time window.
 - Detects normally launched clients without copying or starting the game. Exiting the game releases the ASIO device, and the tool keeps waiting for the next client.
 - Supports renamed outer tool folders and paths containing spaces or Chinese text. Keep the internal file names, `managed` and `locales` folders intact.
@@ -37,6 +37,8 @@ Clean defaults are **16 samples / Driver ID 0 / 48000 Hz / Output Volume 50 / De
 Reviewed references are .NET 10 Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`. Version 1.2.0 retains [three-tier contract validation](docs/AUDIO_CONTRACT.md). Both modes require structural signatures and critical semantic projections. Default `Contract Mode = 1` (Adaptive) permits unreviewed exact-hash drift only after these checks pass and displays `[Compat/Adaptive]`. `Contract Mode = 0` (Strict) additionally requires an exact reviewed Game/Framework pair. `[Verified Contract]` identifies an exact match. Old five-field INIs default to Adaptive; restart the game after changing mode. A later client date/version alone does not establish compatibility.
 
 This tool injects a native hook and installs runtime adapters in the game process. Understand the client's rules before use; this project makes no account-safety guarantee. It does not overwrite the game client, account configuration or beatmap database.
+
+When the tool exits or fails, hitsounds fall back to the game's native output. If the game's Hitsound volume is 0%, that fallback is silent. A local channel adaptation error now rejects only that channel; contract/installation failures still disable external output globally.
 
 Restart the game before reattaching after closing the tool. Multiple clients are handled one at a time. A loop already playing before attachment may require re-entering the beatmap. Software buffer duration is not a measured end-to-end latency.
 

@@ -38,7 +38,7 @@ Generated anchor members are selected within their declaring context by their co
 }
 ```
 
-The optional profile field `projectionRevision` defaults to 1 (legacy strict projections); value 2 explicitly enables the bounded slice and generated-context mapping described above. Other values reject. The schema stays at version 2 and the reviewed exact entries are unchanged. The shipped profile has 80 structural rules and 41 critical method projections. Reviewed combinations include Game1026/Framework1019 and Game1110/Framework1030. Runtime validation reads the **embedded** catalog; editing a loose JSON beside a released DLL does not whitelist a client. Rebuild and redistribute the managed bridge after reviewing a catalog update.
+The optional profile field `projectionRevision` defaults to 1 (legacy strict projections); value 2 explicitly enables the bounded slice and generated-context mapping described above. Other values reject. The schema stays at version 2 and the reviewed exact entries are unchanged. The round5 local profile has 81 structural rules and 41 critical method projections; the additional enum rule pins OsuSetting.HitsoundVolume=121. The existing DrawableRuleset<T>.load anchor already preserves GetBindable -> hitsoundVolume -> GameplayMixer.Volume.BindTo. Binding/value mutations must fail Tier1/2. Reviewed combinations include Game1026/Framework1019 and Game1110/Framework1030. Runtime validation reads the **embedded** catalog; editing a loose JSON beside a released DLL does not whitelist a client. Rebuild and redistribute the managed bridge after reviewing a catalog update.
 
 ## Extract a candidate
 
