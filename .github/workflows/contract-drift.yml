@@ -1,0 +1,40 @@
+name: Audio contract drift
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'ppy/osu release tag (latest resolves and records an exact tag and SHA-256)'
+        default: latest
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Inspect official release metadata without launching osu
+        shell: powershell
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || 'latest' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          .\tools\contract\Test-ContractDrift.ps1 -DownloadRelease -ReleaseTag $env:RELEASE_TAG -OutputDirectory .\artifacts\contract-drift
+          exit $LASTEXITCODE
+      - name: Upload contract report and provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-drift-${{ github.run_id }}
+          path: |
+            artifacts/contract-drift/*.json
+            artifacts/contract-drift/*.txt
+            artifacts/contract-drift/*.log
+          if-no-files-found: warn
