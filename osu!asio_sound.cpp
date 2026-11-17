@@ -877,6 +877,7 @@ static DWORD getPID(LPCSTR ProcessName)
 }
 
 #include "utf8_log.h"
+#include "startup_lease.h"
 
 static char osuExename[256] = "osu!.exe";
 
@@ -1004,13 +1005,17 @@ int main(int argc, char *argv[])
     asio::WakeEvent wakeEvent;
     wakeEvent.create(PID); // Missing event is a supported polling fallback.
     backendWake = wakeEvent.get();
-    InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount()));
+    asio::StartupLease startupLease(MyPool);
+    if(!startupLease.start()) {
+        UnmapViewOfFile(lpBase);CloseHandle(hMapFile);FMOD_System_Release(fmodSystem);return 1;
+    }
     FMOD_DSP *leaseDSP = nullptr;
     FMOD_CHANNELGROUP *leaseMaster = nullptr;
     FMOD_RESULT leaseResult = attachAudioLease(fmodSystem, MyPool, &leaseDSP, &leaseMaster);
     if (leaseResult != FMOD_OK)
     {
         puts(ui::text("backend.lease_failed",{FMOD_ErrorString(leaseResult)}).c_str());
+        startupLease.stop();
         FMOD_System_Release(fmodSystem);
         UnmapViewOfFile(lpBase); CloseHandle(hMapFile);
         return 1;
@@ -1018,6 +1023,7 @@ int main(int argc, char *argv[])
     InterlockedExchange(&MyPool->backendReady, 1);
     auto closeBackend = [&]()
     {
+        startupLease.stop();
         InterlockedExchange(&MyPool->backendReady, 0);
         FMOD_ChannelGroup_RemoveDSP(leaseMaster, leaseDSP);
         FMOD_DSP_Release(leaseDSP);
@@ -1080,6 +1086,7 @@ int main(int argc, char *argv[])
     settingsWatcherRunning=true;
     HANDLE settingsThread=CreateThread(nullptr,0,watchSettings,nullptr,0,nullptr);
     if(!settingsThread){settingsWatcherRunning=false;CloseHandle(settingsStopEvent);CloseHandle(hProcess);closeBackend();return 1;}
+    startupLease.stop(); // Ownership of heartbeat transfers to the event worker.
     Work = true;
     HANDLE thread = CreateThread(0, 0, mainloop, 0, 0, 0);
     if (!thread) {

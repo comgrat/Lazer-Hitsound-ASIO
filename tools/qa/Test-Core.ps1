@@ -12,6 +12,7 @@ New-Item -ItemType Directory -Path $fixtureDirectory|Out-Null
 $cases=@(
  @{name='routing';source='test_routing.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='audio-lease';source='AudioLeaseMock.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='startup-lease';source='StartupLeaseProbe.cpp';fmod=$true;hook=$false;arguments=@()},
  @{name='diagnostic-log';source='DiagnosticLogProbe.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='native-hook';source='NativeHookMock.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='native-restart';source='NativeRestartProbe.cpp';fmod=$false;hook=$true;arguments=@()},
