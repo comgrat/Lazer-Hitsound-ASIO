@@ -95,7 +95,13 @@ The final candidate build passed from an unrelated working directory with `NoDef
 
 New cases cover the named auto-reset wake event, idle heartbeat/burst draining and QPC collection; reordered/commented debug configuration; query passthrough under a held lock; handle release/reuse and same-generation pause/resume during unlocked monitoring; FMOD-owned PCM after source mapping mutation; actual stolen loop handles and generation-specific native restoration, unrelated-channel preservation and a full failure ring; bounded retired history, eviction replay rejection and legal new-generation playback. The failure messages printed by negative fixtures are expected assertions, not build failures.
 
-The protocol magic changed once to `0x41534933`. The hook/backend pair must be delivered together. Retired generations, the 250 ms lease DSP, native restoration and Tier1/2 remain enforced. Full epoch recovery and one-shot natural-tail deferral are design only; see [MAINTENANCE.md](MAINTENANCE.md).
+Version 1.1.2 used protocol magic `0x41534933`. Round4 uses `0x41534935` for the coordinated recovery layout; the hook/backend pair must be delivered together. Retired generations, the 250 ms lease DSP, native restoration and Tier1/2 remain enforced. One-shot natural-tail deferral stays design only; recovery is described in [MAINTENANCE.md](MAINTENANCE.md).
+
+## Round4 rebuilt candidate evidence
+
+The discarded fourth-round attempt was archived and the implementation restarted from `55d8f51`. The rebuilt tree passed the complete Build.ps1/Test-Core run: Routing 185, AudioLease 25, DiagnosticLog 27, NativeHookMock 334 (27 cases), NativeRestart 28, RecoveryIntegration 33, MixerAbi 188, PlayerOutput 27, OutputRegression 405 (15 stages), DigitalOutput 3540, synthetic contract 36, graph 11 and managed log 6; all had zero failures. Core checks include two wake-probe modes and config enumeration without opening a device.
+
+The read-only real-client contract suite passed 98 assertions, including all previous negative mutations plus generated renumbering, changed arithmetic/call targets, ambiguity and bounded entry-diagnostic slicing. Local and downloaded official 2026.1115.0-lazer metadata both returned ExactMatch (Framework 2026.1114 / Game 2026.1115). The 188150012-byte Windows full nupkg SHA-256 was `d74d87d9eda5c17f0e8827471c225001be379bd99028e5636f9568b4a72bdfe0`. No game or installer was executed. Scheduled CI has been prepared locally; it will run only after the user authorizes pushing it. Hardware listening on the rebuilt candidate remains pending.
 
 ## Exact contract matching and client versions
 
