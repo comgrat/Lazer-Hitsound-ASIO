@@ -1424,6 +1424,53 @@ void test_set_attribute_holds_state_lock_across_original_call()
     CHECK_NEAR(snapshot.sampleGain, 0.25f, 1.0e-6f);
 }
 
+void test_play_query_revalidates_generation_and_revision()
+{
+    for(int mode=0;mode<4;++mode) {
+        resetFixture();
+        Fixture fixture=createChannel(true,0.25f);
+        startExternal(fixture,0.5f);
+        const DWORD original=channelGeneration(fixture.channel);
+        const auto revision=channelInfoMap.at(fixture.channel).playbackRevision;
+        clearEvents();
+        bool unlocked=false;
+        g_mock.active=1; // the externally mirrored native timeline is playing
+        int callsBefore=g_mock.isActiveCalls;
+        g_activeFault=[&](DWORD handle) {
+            // Another real thread can take stateLock during the native query.
+            std::thread mutation([&] {
+                if(!TryEnterCriticalSection(&stateLock)) return;
+                unlocked=true;
+                auto &info=channelInfoMap.at(handle);
+                if(mode==1) ++info.playbackRevision; // same generation resumed
+                if(mode==2) {info.generation=DWORD(InterlockedIncrement(&nextGeneration));++info.playbackRevision;}
+                if(mode==3) channelInfoMap.erase(handle);
+                LeaveCriticalSection(&stateLock);
+            });
+            mutation.join();
+            if(mode==1 || mode==2) {
+                // First observation is stale 'stopped'. The serialized retry
+                // observes current 'playing', avoiding a false new generation.
+                g_mock.active=0;
+                g_activeFault=[&](DWORD){g_mock.active=1;};
+            }
+        };
+        CHECK_TRUE(MyBASS_ChannelPlay(fixture.channel,FALSE));
+        CHECK_TRUE(unlocked);
+        CHECK_EQ(g_mock.isActiveCalls-callsBefore,(mode==1||mode==2)?2:1);
+        if(mode==3) {
+            CHECK_FALSE(channelPresent(fixture.channel));
+            CHECK_TRUE(eventsSnapshot().empty());
+        } else {
+            CHECK_EQ(channelGeneration(fixture.channel),mode==2?original+1:original);
+            CHECK_TRUE(channelInfoMap.at(fixture.channel).playbackRevision>revision);
+            auto events=eventsSnapshot();
+            CHECK_EQ(countRemoved(events,original),0);
+            CHECK_TRUE(routeIs(fixture.channel,asio::Route::External));
+        }
+    }
+}
+
 struct TestCase
 {
     const char *name;
@@ -1470,6 +1517,7 @@ int main()
         {"v2_context_rejects_stale_generation_after_handle_reuse",
          test_v2_context_rejects_stale_generation_after_handle_reuse},
         {"unrelated_queries_bypass_state_lock", test_unrelated_queries_bypass_state_lock},
+        {"play_query_revalidates_generation_and_revision", test_play_query_revalidates_generation_and_revision},
         {"monitor_revalidates_handle_after_unlocked_query", test_monitor_revalidates_handle_after_unlocked_query},
         {"monitor_ignores_inactive_result_after_same_generation_resume", test_monitor_ignores_inactive_result_after_same_generation_resume},
         {"loop_failure_restores_only_matching_generation", test_loop_failure_restores_only_matching_generation},

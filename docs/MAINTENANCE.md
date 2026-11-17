@@ -82,6 +82,12 @@ A scheduled CI design can fetch a pinned ppy/osu release artifact, record its UR
 
 The optional one-shot tail proposal is also design only. A future event flag must distinguish natural decoder completion from explicit stop/pause/remove; only a non-looping natural-completion orphan could finish externally. Explicit ChannelStop, mixer pause, chart exit and every loop must stop promptly. That distinction needs dedicated event-order and shutdown tests before implementation.
 
+## Round4 PLAY query lock revision
+
+The PLAY hook snapshots generation and playbackRevision under stateLock, runs BASS_ChannelIsActive outside the lock, then revalidates both identities before acting. A changed identity takes a serialized retry so a stale inactive result cannot restart a resumed or reused voice. Explicit restart needs no active query. Regression faults mutate state from another thread during the real hook's query: unchanged, same-generation resume, generation replacement and release.
+
+Tracked PAN/FREQ writes remain serialized with their bookkeeping. A generation check alone does not prevent two writes of the same attribute completing in one order and being recorded in the opposite order. Volume writes/restoration and other ownership-changing operations also retain their lock; further narrowing requires ordering and lifetime fencing, not just stale-generation rejection.
+
 ## Round4 logging revision
 
 Managed attachment logs and the hook file logger now start new UTF-8 files with one BOM. Append/reopen preserves existing bytes, including older BOM-less logs. The backend emits a preamble only on redirected stdout; interactive consoles and stderr are untouched. This lets Windows PowerShell 5.1 detect UTF-8 while an empty stderr still means no errors. The watcher consumes the preamble using its existing StreamReader.

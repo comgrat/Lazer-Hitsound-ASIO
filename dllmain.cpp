@@ -891,9 +891,25 @@ HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
 
 BOOL WINAPI MyBASS_ChannelPlay(DWORD handle, BOOL restart)
 {
+    DWORD active=0;
+    // Snapshot every identity that can invalidate an active-state observation.
+    // A same-generation pause/resume changes playbackRevision too.
     EnterCriticalSection(&stateLock);
-    auto it = channelInfoMap.find(handle);
-    DWORD active = it!=channelInfoMap.end() && pOrigBASS_ChannelIsActive ? pOrigBASS_ChannelIsActive(handle) : 0;
+    auto it=channelInfoMap.find(handle);
+    if(it!=channelInfoMap.end() && !restart && pOrigBASS_ChannelIsActive) {
+        const DWORD generation=it->second.generation;
+        const auto revision=it->second.playbackRevision;
+        LeaveCriticalSection(&stateLock);
+        active=pOrigBASS_ChannelIsActive(handle);
+        EnterCriticalSection(&stateLock);
+        it=channelInfoMap.find(handle);
+        if(it!=channelInfoMap.end() && (it->second.generation!=generation || it->second.playbackRevision!=revision)) {
+            // Contended cold path: serialize a fresh observation with PLAY.
+            // Never apply a stale 'stopped' result to a resumed/reused voice.
+            active=pOrigBASS_ChannelIsActive(handle);
+            it=channelInfoMap.find(handle);
+        }
+    }
     bool newPlayback = it!=channelInfoMap.end() && (restart || active==0);
     muteBeforeStart(handle);
     BOOL result = pOrigBASS_ChannelPlay(handle, restart);
