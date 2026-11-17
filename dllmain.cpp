@@ -16,6 +16,7 @@
 #include "managed_host.h"
 #include "async_text_log.h"
 #include "event_wake.h"
+#include "recovery.h"
 
 using namespace std;
 
@@ -70,6 +71,7 @@ struct ChannelInfo
     float sampleGain = 0;
     DWORD generation = 0;
     DWORD incarnation = 0; // Original allocation identity survives only explicit restart epochs.
+    DWORD allocationEpoch = 0; // Old lifetimes never reacquire ownership after recovery.
     unsigned long long playbackRevision = 0; // Protected by stateLock; changes on same-generation starts.
     asio::RoutingState routing;
     bool restorePending = false;
@@ -154,6 +156,12 @@ static void logPrintf(const char *format, ...);
 
 static void restoreNativeVolume(HCHANNEL channel, ChannelInfo &info)
 {
+    // Wait for the backend's stop acknowledgement before restoring ownership.
+    // Permanent failure still uses the existing fail-closed restoration path.
+    if(MyPool && MyPool->backendReady && asio::recoveryState(MyPool)==RECOVERY_REQUESTED) {
+        info.restorePending=true;
+        return;
+    }
     bool restored = pOrigBASS_ChannelSetAttribute(channel, BASS_ATTRIB_VOL, info.volume) != FALSE;
     if (!restored && !info.restorePending)
         logPrintf("[ASIO Hook] native volume restore failed channel=%lu; retrying\n", (unsigned long)channel);
@@ -177,9 +185,8 @@ static sharepool::SampleAck *findSampleAck(HSAMPLE sample, bool allocate = false
 
 static bool backendAlive()
 {
-    return MyPool != NULL && MyPool->magic == ASIO_PROTOCOL_MAGIC &&
-        MyPool->targetPid == GetCurrentProcessId() && MyPool->backendReady != 0 &&
-        DWORD(GetTickCount() - DWORD(MyPool->heartbeat)) < 250;
+    return MyPool && MyPool->targetPid==GetCurrentProcessId() &&
+        asio::recoveryLeaseValid(MyPool,GetTickCount());
 }
 
 static bool sampleReady(HSAMPLE sample)
@@ -268,12 +275,20 @@ static void tracePrintf(const char *format, ...)
     hookTextLog->write("%s",buffer);
 }
 
-static bool pushEvent(const Event &event)
+static bool pushEvent(const Event &event, bool recoveryReplay=false)
 {
     if (MyPool == NULL || !MyPool->backendReady)
         return false;
 
     EnterCriticalSection(&queueLock);
+    if(!MyPool->backendReady) {LeaveCriticalSection(&queueLock);return false;}
+    const LONG phase=asio::recoveryState(MyPool);
+    const bool sampleEvent=event.type==EVENT_SAMPLE_LOADED || event.type==EVENT_SAMPLE_FREED;
+    if(phase!=RECOVERY_RUNNING && !(phase==RECOVERY_REPLAYING && (recoveryReplay||sampleEvent))) {
+        LeaveCriticalSection(&queueLock);
+        // Keep sample mappings in the hook; replay enumerates them after stop.
+        return event.type!=EVENT_CHANNEL_STATE;
+    }
 
     LONG next = (MyPool->tail + 1) % EVENT_POOL_SIZE;
     if (next == MyPool->head)
@@ -285,6 +300,7 @@ static bool pushEvent(const Event &event)
     }
 
     Event queued = event;
+    queued.epoch=DWORD(MyPool->epoch);
     if (queued.type == EVENT_CHANNEL_STATE && MyPool->diagnosticsEnabled)
         queued.data.channelState.time = asio::qpcMilliseconds();
     MyPool->events[MyPool->tail] = queued;
@@ -525,8 +541,61 @@ static void drainChannelFailures()
     }
 }
 
+// Returns true while normal channel monitoring must remain suspended.
+static bool serviceRecovery()
+{
+    if(!MyPool || !MyPool->backendReady) return false;
+    const DWORD now=GetTickCount();
+    if(MyPool->hookAttached && DWORD(now-DWORD(MyPool->hookHeartbeat))>=250)
+        asio::requestRecovery(MyPool);
+    InterlockedExchange(&MyPool->hookHeartbeat,LONG(now));
+    asio::recoveryLeaseValid(MyPool,now);
+    const LONG phase=asio::recoveryState(MyPool);
+    if(phase==RECOVERY_RUNNING) return false;
+    if(phase!=RECOVERY_BACKEND_STOPPED) return true;
+
+    // Same lock order as SampleLoad/Free: freeze sample lifetimes while taking
+    // the snapshot. BackendStopped guarantees no consumer is touching queues.
+    std::lock_guard<std::recursive_mutex> publication(samplePublishMutex);
+    EnterCriticalSection(&stateLock);
+    if(!MyPool->backendReady || asio::recoveryState(MyPool)!=RECOVERY_BACKEND_STOPPED) {
+        LeaveCriticalSection(&stateLock);return true;
+    }
+    for(auto &entry:channelInfoMap) {
+        auto &info=entry.second;
+        bool restore=info.routing.suppressNative()||info.restorePending;
+        info.routing.failover();
+        ++info.playbackRevision;
+        if(restore) restoreNativeVolume(entry.first,info);
+    }
+    if(!MyPool->backendReady) {LeaveCriticalSection(&stateLock);return true;}
+    EnterCriticalSection(&queueLock);
+    InterlockedExchange(&MyPool->head,MyPool->tail);
+    InterlockedExchange(&MyPool->failureHead,MyPool->failureTail);
+    for(auto &ack:MyPool->sampleAcks) InterlockedExchange(&ack.readyGeneration,0);
+    InterlockedExchange(&MyPool->retiredThroughGeneration,nextGeneration);
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_REPLAYING);
+    LeaveCriticalSection(&queueLock);
+    bool ok=true;
+    for(const auto &entry:sampleInfoMap) {
+        const auto &sample=entry.second;
+        Event event={};event.type=EVENT_SAMPLE_LOADED;
+        auto &p=event.data.sampleLoaded;
+        p.sample=entry.first;p.generation=sample.generation;
+        p.sampleRate=sample.sampleRate;p.channels=sample.channels;
+        p.format=sample.format;p.dataLength=sample.dataLength;p.flags=sample.flags;
+        strncpy_s(p.mappingName,sample.mappingName.c_str(),_TRUNCATE);
+        if(!pushEvent(event,true)) {ok=false;break;}
+    }
+    Event commit={};commit.type=EVENT_RECOVERY_COMMIT;
+    if(!ok || !pushEvent(commit,true)) InterlockedExchange(&MyPool->backendReady,0);
+    LeaveCriticalSection(&stateLock);
+    return true;
+}
+
 static void monitorChannelsOnce(std::vector<MonitorSnapshot> &pending)
 {
+    if(serviceRecovery()) {pending.clear();return;}
     drainChannelFailures();
     pending.clear();
     EnterCriticalSection(&stateLock);
@@ -552,6 +621,10 @@ static void monitorChannelsOnce(std::vector<MonitorSnapshot> &pending)
             if (info.restorePending) restoreNativeVolume(snapshot.channel, info);
             if (info.routing.suppressNative() && !backendAlive())
             {
+                if(MyPool->backendReady && asio::recoveryState(MyPool)!=RECOVERY_RUNNING) {
+                    LeaveCriticalSection(&stateLock);
+                    continue;
+                }
                 publishChannelStateLocked(snapshot.channel, CHANNEL_STATE_PAUSED, info);
                 if (MyPool) InterlockedExchange(&MyPool->backendReady, 0);
                 info.routing.failover();
@@ -675,6 +748,7 @@ static void startExternal(HCHANNEL channel, ChannelInfo &info)
     // observation even when this is a repeated start for the same lifetime.
     ++info.playbackRevision;
     bool alive = backendAlive(), ready = sampleReady(info.sample), queue = queueAvailable();
+    if(MyPool && info.allocationEpoch!=DWORD(MyPool->epoch)) info.routing.failover();
     traceCount(4);
     if (!info.eligible) traceCount(5);
     if (!alive) traceCount(6);
@@ -702,6 +776,7 @@ static bool muteBeforeStart(HCHANNEL channel)
     auto it = channelInfoMap.find(channel);
     bool mute = it != channelInfoMap.end() && (it->second.routing.suppressNative() ||
         (it->second.routing.route == asio::Route::Undecided && it->second.eligible &&
+         MyPool && it->second.allocationEpoch==DWORD(MyPool->epoch) &&
          backendAlive() && sampleReady(it->second.sample) && queueAvailable()));
     if (mute)
         mute = pOrigBASS_ChannelSetAttribute(channel, BASS_ATTRIB_VOL, 0) != FALSE;
@@ -881,6 +956,7 @@ HCHANNEL WINAPI MyBASS_SampleGetChannel(HSAMPLE handle, DWORD flags)
     info.paused = true;
     info.generation = DWORD(InterlockedIncrement(&nextGeneration));
     info.incarnation = info.generation;
+    info.allocationEpoch = MyPool ? DWORD(MyPool->epoch) : 0;
     channelInfoMap[channel] = info;
     LeaveCriticalSection(&stateLock);
 
@@ -911,6 +987,13 @@ BOOL WINAPI MyBASS_ChannelPlay(DWORD handle, BOOL restart)
         }
     }
     bool newPlayback = it!=channelInfoMap.end() && (restart || active==0);
+    // An explicit restart creates a new lifetime after a completed recovery.
+    if(it!=channelInfoMap.end() && restart && backendAlive() &&
+       it->second.allocationEpoch!=DWORD(MyPool->epoch)) {
+        it->second.generation=DWORD(InterlockedIncrement(&nextGeneration));
+        it->second.allocationEpoch=DWORD(MyPool->epoch);
+        it->second.routing=asio::RoutingState{};
+    }
     muteBeforeStart(handle);
     BOOL result = pOrigBASS_ChannelPlay(handle, restart);
     if (!result) { restoreIfNative(handle); LeaveCriticalSection(&stateLock); return result; }
@@ -964,6 +1047,7 @@ BOOL WINAPI MyBASS_ChannelStop(DWORD handle)
         it->second.paused = true;
         it->second.generation = DWORD(InterlockedIncrement(&nextGeneration));
         it->second.incarnation = it->second.generation;
+        it->second.allocationEpoch = MyPool ? DWORD(MyPool->epoch) : 0;
         publishChannelCreated(it->second.sample, handle, it->second.looping ? BASS_SAMPLE_LOOP : 0);
         publishChannelUpdated(handle, CHANNEL_UPDATE_VOLUME | CHANNEL_UPDATE_PAN | CHANNEL_UPDATE_FREQUENCY | CHANNEL_UPDATE_LOOP, it->second);
     }
@@ -1217,6 +1301,8 @@ extern "C" __declspec(dllexport) void initDLL()
     HANDLE pollThread = CreateThread(0, 0, monitorChannels, 0, 0, 0);
     if (pollThread != NULL)
     {
+        InterlockedExchange(&MyPool->hookHeartbeat,LONG(GetTickCount()));
+        InterlockedExchange(&MyPool->hookAttached,1);
         hooksInitialised = true;
         CloseHandle(pollThread);
     }

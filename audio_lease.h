@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <cstring>
 #include "sharepool.h"
+#include "recovery.h"
 #include "fmod/inc/fmod.h"
 
 // A stalled event worker must not leave a looping ASIO voice audible after
@@ -21,7 +22,7 @@ inline FMOD_RESULT F_CALL readAudioLease(FMOD_DSP_STATE *state, float *input, fl
     void *context = nullptr;
     bool active = state && state->functions && state->functions->getuserdata &&
         state->functions->getuserdata(state, &context) == FMOD_OK &&
-        audioLeaseValid(static_cast<sharepool *>(context), GetTickCount());
+        asio::recoveryLeaseValid(static_cast<sharepool *>(context), GetTickCount());
     size_t bytes = size_t(length) * inputChannels * sizeof(float);
     if (!active || !input) memset(output, 0, bytes);
     else if (output != input) memcpy(output, input, bytes);

@@ -15,6 +15,7 @@ $cases=@(
  @{name='diagnostic-log';source='DiagnosticLogProbe.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='native-hook';source='NativeHookMock.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='native-restart';source='NativeRestartProbe.cpp';fmod=$false;hook=$true;arguments=@()},
+ @{name='recovery-integration';source='RecoveryIntegration.cpp';fmod=$true;hook=$true;arguments=@()},
  @{name='mixer-abi';source='MixerAbiRegression.cpp';fmod=$false;hook=$true;arguments=@()},
  @{name='player-output';source='PlayerOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
  @{name='output-regression';source='OutputRegression.cpp';fmod=$true;hook=$false;arguments=@('--artifacts',$fixtureDirectory)},
@@ -31,6 +32,12 @@ foreach($case in $cases){
     $arguments=@('/nologo','/utf-8','/std:c++17','/EHsc','/O2','/MT',('/I'+$repo),('/I'+(Join-Path $repo 'tests')),(Join-Path "$repo\tests" $case.source),('/Fo'+$object),('/Fe'+$exe),'/link','/LTCG','User32.lib','Advapi32.lib','winmm.lib')
     if($case.fmod){$arguments+=@((Join-Path $repo 'lib\fmod_vc.lib'))}
     if($case.hook){$arguments+=(Join-Path $repo 'lib\libMinHook.x64.lib')}
+    if($case.name -eq 'recovery-integration') {
+        $fixtureObject=Join-Path $output 'recovery-hook-fixture.obj'
+        & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /c (Join-Path $repo 'tests\RecoveryHookFixture.cpp') ('/Fo'+$fixtureObject)
+        if($LASTEXITCODE){$failed+=$case.name;continue}
+        $arguments+=$fixtureObject
+    }
     & cl.exe @arguments
     if($LASTEXITCODE){$failed+=$case.name;continue}
     try {

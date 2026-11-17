@@ -90,6 +90,12 @@ int main()
           allEqual(output.data(), 16 * 6, 0.0f), "stale heartbeat zeroes output");
 
     pool.heartbeat = LONG(GetTickCount());
+    check(pool.recoveryState==RECOVERY_REQUESTED,"expiry latches a recovery request");
+    output.fill(-1.0f);
+    check(readAudioLease(&state,input.data(),output.data(),16,6,&outChannels)==FMOD_OK &&
+          allEqual(output.data(),16*6,0.0f),"heartbeat refresh cannot revive abandoned output");
+    // Model a completed handshake for the remaining format tests.
+    pool.recoveryState=RECOVERY_RUNNING;
     pool.magic = 0;
     output.fill(-1.0f);
     check(readAudioLease(&state, input.data(), output.data(), 16, 6, &outChannels) == FMOD_OK &&

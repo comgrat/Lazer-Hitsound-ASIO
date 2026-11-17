@@ -506,6 +506,42 @@ static void retireFinishedChannels(unordered_map<HCHANNEL, ChannelData> &channel
     }
 }
 
+// Runs only on the event worker. Publish the stop acknowledgement only after
+// FMOD has stopped every old voice and released all old sample resources.
+static bool stopForRecovery(unordered_map<HSAMPLE,SampleData>& samples,
+                            unordered_map<HCHANNEL,ChannelData>& channels)
+{
+    for(auto &entry:channels) {
+        if(!entry.second.channel) continue;
+        auto result=FMOD_Channel_Stop(entry.second.channel);
+        if(result!=FMOD_OK && result!=FMOD_ERR_INVALID_HANDLE && result!=FMOD_ERR_CHANNEL_STOLEN) {
+            backendFailed(result);return false;
+        }
+        entry.second.channel=nullptr;
+    }
+    channels.clear();
+    for(auto &entry:samples) {
+        if(!entry.second.sound) continue;
+        auto result=FMOD_Sound_Release(entry.second.sound);
+        if(result!=FMOD_OK) {backendFailed(result);return false;}
+        entry.second.sound=nullptr;
+    }
+    samples.clear();
+    if(DWORD(MyPool->epoch)>=0x7ffffffeu) {backendFailed(FMOD_ERR_INTERNAL);return false;}
+    InterlockedIncrement(&MyPool->epoch);
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_BACKEND_STOPPED);
+    return true;
+}
+
+static void pulseBackend()
+{
+    const DWORD now=GetTickCount();
+    // Observe expiry before refreshing; otherwise the worker could erase the
+    // only evidence of its own stall before the hook or DSP sees it.
+    if(MyPool->heartbeat) asio::recoveryLeaseValid(MyPool,now);
+    InterlockedExchange(&MyPool->heartbeat,LONG(now));
+}
+
 static DWORD WINAPI mainloop(LPVOID)
 {
     unordered_map<HSAMPLE, SampleData> samples;
@@ -515,7 +551,7 @@ static DWORD WINAPI mainloop(LPVOID)
 
     while (Work)
     {
-        InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount()));
+        pulseBackend();
         if (!refreshOutputVolume()) { backendFailed(FMOD_ERR_INTERNAL); }
         if (DWORD(GetTickCount() - lastReport) >= 5000)
         {
@@ -533,17 +569,44 @@ static DWORD WINAPI mainloop(LPVOID)
             PostThreadMessage(mainThreadId, WM_QUIT, 0, 0);
             break;
         }
+        LONG phase=asio::recoveryState(MyPool);
+        if(phase==RECOVERY_REQUESTED) {
+            if(stopForRecovery(samples,channels)) generations=GenerationHistory{};
+            continue;
+        }
+        if(phase==RECOVERY_BACKEND_STOPPED) {
+            if(backendWake) WaitForSingleObject(backendWake,5);else Sleep(1);
+            continue;
+        }
         bool processedEvent = false;
 
         while (MyPool->head != MyPool->tail)
         {
             if (!MyPool->backendReady)
                 break;
-            InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount()));
+            pulseBackend();
+            phase=asio::recoveryState(MyPool);
+            if(phase==RECOVERY_REQUESTED || phase==RECOVERY_BACKEND_STOPPED) break;
             Event event = MyPool->events[MyPool->head];
             MemoryBarrier();
             MyPool->head = (MyPool->head + 1) % EVENT_POOL_SIZE;
             processedEvent = true;
+            if(event.epoch!=DWORD(MyPool->epoch)) {++playbackStats.staleRejected;continue;}
+            if(event.type>=EVENT_CHANNEL_CREATED && event.type<=EVENT_CHANNEL_REMOVED &&
+               MyPool->retiredThroughGeneration && LONG(event.generation-DWORD(MyPool->retiredThroughGeneration))<=0) {
+                ++playbackStats.staleRejected;continue;
+            }
+            if(event.type==EVENT_RECOVERY_COMMIT) {
+                if(phase==RECOVERY_REPLAYING && MyPool->backendReady) {
+                    InterlockedIncrement(&MyPool->recoveries);
+                    InterlockedCompareExchange(&MyPool->recoveryState,RECOVERY_RUNNING,RECOVERY_REPLAYING);
+                    debugPrintf("[ASIO recovery] epoch=%ld samples=%zu; new lifetimes enabled\n",MyPool->epoch,samples.size());
+                }
+                continue;
+            }
+            if(phase==RECOVERY_REPLAYING && event.type!=EVENT_SAMPLE_LOADED && event.type!=EVENT_SAMPLE_FREED) {
+                ++playbackStats.staleRejected;continue;
+            }
             if (event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING &&
                 MyPool->diagnosticsEnabled && event.data.channelState.time > 0)
                 queueLatency.add(asio::qpcMilliseconds() - event.data.channelState.time);
@@ -603,6 +666,7 @@ static DWORD WINAPI mainloop(LPVOID)
                             ensurePaused(entry.second);
                     }
                 }
+                else if(phase==RECOVERY_REPLAYING) backendFailed(FMOD_ERR_INTERNAL);
                 break;
 
             case EVENT_SAMPLE_FREED:

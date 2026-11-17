@@ -572,6 +572,56 @@ static void failingBackend() {
     MSG message = {};
     check(PeekMessage(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE) != FALSE, "failed worker posts WM_QUIT to test owner");
 }
+static void recoveryHandshake() {
+    section("recovery stops old voices, waits for hook, reloads samples and rejects old events");
+    System system;MappedSample mapped(79,7,48000);
+    Worker worker;
+    Event load={};load.type=EVENT_SAMPLE_LOADED;load.data.sampleLoaded=mapped.payload;
+    worker.send(load);worker.send(created(800,80,79));worker.send(state(800,80,79,true,true));worker.drained();
+    require(eventually([]{return activeChannels()==1;}),"old epoch loop is playing");
+    asio::requestRecovery(MyPool);
+    require(eventually([]{return asio::recoveryState(MyPool)==RECOVERY_BACKEND_STOPPED;}),"backend acknowledges stop");
+    require(eventually([]{return activeChannels()==0;}),"old loop stopped before hook acknowledgement");
+    const DWORD epoch=DWORD(MyPool->epoch);
+    check(epoch==1,"backend advances initial epoch once");
+    Sleep(40);
+    check(asio::recoveryState(MyPool)==RECOVERY_BACKEND_STOPPED && MyPool->backendReady,"missing hook acknowledgement cannot resume audio");
+    // Model the hook's quiescent snapshot: old queue drained, ACK invalidated,
+    // old lifetime fence installed, samples followed by a FIFO commit marker.
+    MyPool->head=MyPool->tail;
+    MyPool->retiredThroughGeneration=80;
+    auto &ack=MyPool->sampleAcks[79%SAMPLE_ACK_COUNT];ack.readyGeneration=0;
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_REPLAYING);
+    Event stale=state(800,80,79,true,true); // old epoch
+    worker.send(stale);
+    load.epoch=epoch;worker.send(load);
+    Event commit={};commit.type=EVENT_RECOVERY_COMMIT;commit.epoch=epoch;worker.send(commit);
+    worker.drained();
+    require(eventually([]{return asio::recoveryState(MyPool)==RECOVERY_RUNNING;}),"sample replay and commit complete recovery");
+    check(ack.readyGeneration==7 && MyPool->recoveries==1,"sample ACK belongs to reloaded sound");
+    stale.epoch=epoch;worker.send(stale);worker.drained(); // delayed producer stamped with new epoch
+    check(activeChannels()==0,"old generation cannot replay even with current epoch stamp");
+    Event fresh=state(800,81,79,true,true);fresh.epoch=epoch;worker.send(fresh);worker.drained();
+    require(eventually([]{return activeChannels()==1;}),"new lifetime plays using restored sample");
+    worker.stop();
+    check(activeChannels()==0,"shutdown stops recovered loop");
+}
+
+static void recoveryReloadFailure() {
+    section("failed sample reload keeps recovery silent and permanently fails closed");
+    System system;Worker worker;
+    asio::requestRecovery(MyPool);
+    require(eventually([]{return asio::recoveryState(MyPool)==RECOVERY_BACKEND_STOPPED;}),"empty backend still acknowledges stop");
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_REPLAYING);
+    Event missing={};missing.type=EVENT_SAMPLE_LOADED;missing.epoch=DWORD(MyPool->epoch);
+    missing.data.sampleLoaded.sample=99;missing.data.sampleLoaded.generation=99;
+    strcpy_s(missing.data.sampleLoaded.mappingName,"Local\\AsioRecoveryMissingMapping");
+    worker.send(missing);
+    Event commit={};commit.type=EVENT_RECOVERY_COMMIT;commit.epoch=DWORD(MyPool->epoch);worker.send(commit);
+    require(eventually([&]{return WaitForSingleObject(worker.thread,0)==WAIT_OBJECT_0;}),"reload failure exits worker");
+    check(!MyPool->backendReady && MyPool->recoveries==0,"commit cannot undo permanent failure");
+    worker.stop();
+}
 } // namespace regression
 
 int wmain(int argc, wchar_t **argv) {
@@ -584,7 +634,7 @@ int wmain(int argc, wchar_t **argv) {
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
         parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching();
-        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend();
+        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend(); recoveryHandshake(); recoveryReloadFailure();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());
         ++failures;

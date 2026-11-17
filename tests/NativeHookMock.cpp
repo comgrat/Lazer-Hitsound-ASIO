@@ -916,16 +916,22 @@ void test_heartbeat_expiry_fails_over_and_restores_volume()
     InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount() - 500));
     CHECK_FALSE(backendAlive());
 
-    pollerRunning = true;
-    std::thread poller([] { monitorChannels(nullptr); });
-    for (int i = 0; i < 500 && routeIs(fixture.channel, asio::Route::External); ++i)
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    pollerRunning = false;
-    poller.join();
-
+    std::vector<MonitorSnapshot> pending;
+    monitorChannelsOnce(pending);
+    CHECK_EQ(asio::recoveryState(MyPool),RECOVERY_REQUESTED);
+    CHECK_TRUE(routeIs(fixture.channel,asio::Route::External));
+    CHECK_NEAR(g_mock.nativeVolume[fixture.channel],0.0f,0.0f);
+    // A heartbeat alone cannot release ownership. The backend must stop first.
+    InterlockedExchange(&MyPool->heartbeat,LONG(GetTickCount()));
+    monitorChannelsOnce(pending);
+    CHECK_EQ(asio::recoveryState(MyPool),RECOVERY_REQUESTED);
+    InterlockedIncrement(&MyPool->epoch);
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_BACKEND_STOPPED);
+    monitorChannelsOnce(pending);
+    CHECK_EQ(asio::recoveryState(MyPool),RECOVERY_REPLAYING);
     CHECK_TRUE(routeIs(fixture.channel, asio::Route::Native));
     std::vector<Event> events = eventsSnapshot();
-    CHECK_EQ(countState(events, CHANNEL_STATE_PAUSED), 1);
+    CHECK_EQ(countState(events, CHANNEL_STATE_PAUSED), 0);
     CHECK_EQ(countState(events, CHANNEL_STATE_PLAYING), 0);
     CHECK_NEAR(g_mock.nativeVolume[fixture.channel], 0.5f, 0.0f);
 
@@ -1299,6 +1305,10 @@ void test_restore_failure_sets_pending_and_monitor_retries()
     clearVolumeWrites();
 
     InterlockedExchange(&MyPool->heartbeat, LONG(GetTickCount() - 500));
+    asio::requestRecovery(MyPool);
+    // Backend acknowledged stopping the old voices; native restore now runs.
+    InterlockedIncrement(&MyPool->epoch);
+    InterlockedExchange(&MyPool->recoveryState,RECOVERY_BACKEND_STOPPED);
     g_mock.setAttributeOk = false;
 
     pollerRunning = true;

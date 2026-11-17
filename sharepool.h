@@ -43,7 +43,7 @@ typedef DWORD HCHANNEL;
 
 const int EVENT_POOL_SIZE = 8192;
 const int MAPPING_NAME_LENGTH = 128;
-const DWORD ASIO_PROTOCOL_MAGIC = 0x41534933;
+const DWORD ASIO_PROTOCOL_MAGIC = 0x41534935; // Coordinated, latched recovery protocol.
 const int SAMPLE_ACK_COUNT = 4096;
 const int CHANNEL_FAILURE_COUNT = 256;
 
@@ -56,6 +56,18 @@ enum EventType
     EVENT_CHANNEL_UPDATED = 4,
     EVENT_CHANNEL_STATE = 5,
     EVENT_CHANNEL_REMOVED = 6,
+    EVENT_RECOVERY_COMMIT = 7, // FIFO end of the hook's sample rebuild snapshot.
+};
+
+// Running -> Requested (either side/DSP) -> BackendStopped (backend)
+// -> Replaying (hook) -> Running (backend, after the FIFO commit marker).
+// backendReady=0 is permanent and no recovery transition may set it back to 1.
+enum RecoveryState : LONG
+{
+    RECOVERY_RUNNING = 0,
+    RECOVERY_REQUESTED = 1,
+    RECOVERY_BACKEND_STOPPED = 2,
+    RECOVERY_REPLAYING = 3,
 };
 
 enum ChannelState
@@ -137,6 +149,7 @@ struct Event
 {
     DWORD type;
     DWORD generation;
+    DWORD epoch;
     union
     {
         SampleLoadedPayload sampleLoaded;
@@ -158,6 +171,12 @@ struct sharepool
     volatile LONG tail;
     LONG startupDebug; // Backend parsed config; immutable for this attachment.
     volatile LONG diagnosticsEnabled; // Debug Log or backend ASIO_DIAGNOSTICS.
+    volatile LONG recoveryState;
+    volatile LONG epoch; // Advanced by backend only after old voices stop.
+    volatile LONG hookHeartbeat;
+    volatile LONG hookAttached;
+    volatile LONG recoveries;
+    volatile LONG retiredThroughGeneration; // Hook snapshot fence for delayed producers.
     volatile LONG failureHead;
     volatile LONG failureTail;
     struct ChannelFailure { DWORD channel; DWORD generation; } channelFailures[CHANNEL_FAILURE_COUNT];
