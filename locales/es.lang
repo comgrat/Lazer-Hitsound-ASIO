@@ -77,6 +77,7 @@ managed.failed=La instalación del adaptador falló; se conserva la salida nativ
 managed.ready=Los dos adaptadores de audio están instalados. El acoplamiento en vivo está listo.
 managed.installed=Instalación completada: {0} {1}; el contrato de implementación de audio coincide.
 managed.native=Se conserva la salida nativa: {0} {1}
+managed.channel_native=No se puede adaptar este objeto de audio; sus sonidos conservan la salida nativa. Los demás canales siguen activos. Motivo: {0}
 managed.graph=El grafo de agregación de volumen no es válido.
 managed.il=La estructura IL de la puerta de volumen cero de Play no coincide.
 managed.attaching=Adaptando el cliente en ejecución, PID={0}.

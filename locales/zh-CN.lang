@@ -78,6 +78,7 @@ managed.failed=适配安装失败，保留原生输出。
 managed.ready=两套音频适配已安装，独立附加就绪。
 managed.installed=已安装{0} {1}，音频实现契约匹配。
 managed.native=保留原生输出：{0} {1}
+managed.channel_native=此音频对象无法适配，其声音保留原生输出；其他通道继续工作。原因：{0}
 managed.graph=音量聚合图异常。
 managed.il=Play零音量门禁的IL布局不匹配。
 managed.attaching=正在适配已启动客户端，PID={0}。

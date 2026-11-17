@@ -28,11 +28,17 @@ for(int i=0;i<1000;i++)Bridge.TrySampleGain(nested.Result,out _,out _);
 Console.WriteLine("MEASURE graph allocated_bytes_per_call="+((GC.GetAllocatedBytesForCurrentThread()-before)/1000.0));
 lock(graph.Sources)graph.Sources.Add(new Pair(graph.Result));
 Check(!Bridge.TrySampleGain(graph.Result,out _,out _),"cyclic graph still rejects after scratch reuse");
+Check(!(bool)typeof(Bridge).GetField("failed",flags)!.GetValue(null)!,"cyclic object does not globally disable adapter");
+Check(!Bridge.TrySampleGain(new ThrowingLeaf(),out _,out _),"throwing graph node is rejected locally");
+Gain(new Leaf{Value=0.4},0.4);
+Check(!(bool)typeof(Bridge).GetField("failed",flags)!.GetValue(null)!,"healthy graph remains usable after local fault");
+ChannelIsolation.Run(Check);
 Console.WriteLine("ManagedGraphProbe checks="+checks+" failures=0; no client or audio output");
 return 0;
 
 [MethodImpl(MethodImplOptions.NoInlining)] static WeakReference<object> AddEphemeral(Graph graph){object leaf=new Leaf{Value=1};var weak=new WeakReference<object>(leaf);lock(graph.Sources)graph.Sources.Add(new Pair(leaf));if(!Bridge.TrySampleGain(graph.Result,out _,out _))throw new Exception("ephemeral gain failed");return weak;}
 [MethodImpl(MethodImplOptions.NoInlining)] static void Collect(){for(int i=0;i<3;i++){GC.Collect();GC.WaitForPendingFinalizers();GC.Collect();}}
+sealed class ThrowingLeaf {public double Value=>throw new InvalidOperationException("injected graph fault");}
 sealed class Leaf {public double Value{get;set;}}
 sealed class Pair {public WeakReference<object> WeakReference{get;}public Pair(object target){WeakReference=new(target);}}
 sealed class Graph {public double initialValue=1;public IList Sources{get;}=new List<object>();public object Result{get;}=new();}

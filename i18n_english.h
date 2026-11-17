@@ -83,6 +83,7 @@ inline std::unordered_map<std::string,std::string> englishCatalog(){return {
     {"managed.ready","Both audio adapters are installed. Live attachment is ready."},
     {"managed.installed","Installed {0} {1}; audio implementation contract matched."},
     {"managed.native","Native output is retained: {0} {1}"},
+    {"managed.channel_native","This audio object cannot be adapted; its sounds retain native output. Other channels remain active. Reason: {0}"},
     {"managed.graph","Invalid volume aggregation graph."},
     {"managed.il","The Play zero-volume gate IL layout does not match."},
     {"managed.attaching","Adapting the running client, PID={0}."},

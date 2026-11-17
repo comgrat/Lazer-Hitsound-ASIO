@@ -77,6 +77,7 @@ managed.failed=配接器安裝失敗；已保留原生輸出。
 managed.ready=兩個音訊配接器均已安裝。即時附加已就緒。
 managed.installed=已安裝 {0} {1}；音訊實作契約相符。
 managed.native=已保留原生輸出：{0} {1}
+managed.channel_native=此音訊物件無法調整，其聲音保留原生輸出；其他聲道繼續運作。原因：{0}
 managed.graph=音量彙總圖無效。
 managed.il=Play 零音量閘門的 IL 配置不相符。
 managed.attaching=正在調整執行中的用戶端，PID={0}。

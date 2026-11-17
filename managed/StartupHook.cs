@@ -238,35 +238,46 @@ public static class Bridge
         failed = true;
     }
 
+    sealed class LocalFault { }
+    static readonly ConditionalWeakTable<object,LocalFault> localFaults=new();
+    static void ReportLocalFault(object owner,Exception exception)
+    {
+        // Report once per object; diagnostic I/O failure cannot affect routing.
+        if(owner is null || localFaults.TryGetValue(owner,out _))return;
+        localFaults.GetValue(owner,static _=>new());
+        try { Log("[ASIO adapter] "+UiText.Get("managed.channel_native",exception.GetType().Name)); } catch { }
+    }
+    static void ObserveAdjustments(object owner)
+    {
+        object aggregate=Field(owner,"volumeAggregate")??throw new InvalidOperationException("Missing volume aggregate");
+        object result=Property(owner,"AggregateVolume")??throw new InvalidOperationException("Missing aggregate result");
+        var sources=(IList)(Field(aggregate,"sourceMapping")??throw new InvalidOperationException("Missing aggregate sources"));
+        nodes.GetValue(result,_=>new(aggregate,sources));
+        if(Trace.Enabled)Interlocked.Increment(ref Trace.Adjustments);
+    }
     public static void AdjustmentsCreated(object __instance)
     {
-        try
-        {
-            object aggregate = Field(__instance, "volumeAggregate")!;
-            object result = Property(__instance, "AggregateVolume")!;
-            var sources = (IList)Field(aggregate, "sourceMapping")!;
-            nodes.GetValue(result, _ => new(aggregate, sources));
-            if (Trace.Enabled) Interlocked.Increment(ref Trace.Adjustments);
-        }
-        catch (Exception exception) { Disable(exception); }
+        try { ObserveAdjustments(__instance); }
+        catch(Exception exception) { ReportLocalFault(__instance,exception); }
     }
+    static void ObserveManager(object owner) => exclusions.GetValue(Property(owner,"Volume")??throw new InvalidOperationException("Missing manager volume"),_=>new(false));
     public static void ManagerCreated(object __instance)
     {
-        try { exclusions.GetValue(Property(__instance, "Volume")!, _ => new(false)); }
-        catch (Exception exception) { Disable(exception); }
+        try { ObserveManager(__instance); }
+        catch (Exception exception) { Disable(exception); } // shared master setup
+    }
+    static void ObserveMixer(object owner)
+    {
+        if(Trace.Enabled)Interlocked.Increment(ref Trace.MixerLoads);
+        if((string?)(Field(owner,"Name")??Property(owner,"Name"))=="GameplayMixer") {
+            exclusions.GetValue(Property(owner,"Volume")??throw new InvalidOperationException("Missing mixer volume"),_=>new(true));
+            if(Trace.Enabled)Interlocked.Increment(ref Trace.GameplayMarkers);
+        }
     }
     public static void MixerLoaded(object __instance)
     {
-        try
-        {
-            if (Trace.Enabled) Interlocked.Increment(ref Trace.MixerLoads);
-            if ((string?)(Field(__instance, "Name") ?? Property(__instance, "Name")) == "GameplayMixer")
-            {
-                exclusions.GetValue(Property(__instance, "Volume")!, _ => new(true));
-                if (Trace.Enabled) Interlocked.Increment(ref Trace.GameplayMarkers);
-            }
-        }
-        catch (Exception exception) { Disable(exception); }
+        try { ObserveMixer(__instance); }
+        catch(Exception exception) { Disable(exception); } // shared mixer setup
     }
 
     static bool IsType(object value, string fullName)
@@ -282,9 +293,9 @@ public static class Bridge
     {
         object? adjustments = Field(owner, "adjustments");
         if (adjustments != null && IsType(adjustments, "osu.Framework.Audio.AudioAdjustments"))
-            AdjustmentsCreated(adjustments);
-        if (IsType(owner, "osu.Framework.Audio.AudioManager")) ManagerCreated(owner);
-        if (IsType(owner, "osu.Framework.Graphics.Audio.DrawableAudioMixer")) MixerLoaded(owner);
+            ObserveAdjustments(adjustments);
+        if (IsType(owner, "osu.Framework.Audio.AudioManager")) ObserveManager(owner);
+        if (IsType(owner, "osu.Framework.Graphics.Audio.DrawableAudioMixer")) ObserveMixer(owner);
     }
     static void ObserveDrawableChain(object start)
     {
@@ -353,7 +364,7 @@ public static class Bridge
             gameplay = found;
             return !failed && double.IsFinite(gain) && gain >= 0 && gain <= 1;
         }
-        catch (Exception exception) { gain = 0; Disable(exception); return false; }
+        catch (Exception exception) { gain = 0; ReportLocalFault(volume,exception); return false; }
         finally { scratch.Clear(); scratch.InUse = false; }
     }
     static double Evaluate(object volume, GainScratch scratch, ref bool gameplay, int depth)
@@ -414,13 +425,25 @@ public static class Bridge
         if (!result && Trace.Enabled) Interlocked.Increment(ref Trace.NativeNotReady);
         return result;
     }
+    static void RejectChannel(object owner,uint channel,Exception exception)
+    {
+        ReportLocalFault(owner,exception);
+        try {
+            if(channel==0 && tokens.TryGetValue(owner,out var remembered))channel=remembered.Handle;
+            if(channel==0 || context is null)return;
+            if(!tokens.TryGetValue(owner,out var token) || token.Handle!=channel)return;
+            uint current=playbackGeneration is null?token.Generation:playbackGeneration(channel,token.Generation);
+            if(current!=0)context(channel,current,0,0);
+        }catch { /* A bad object's callback must never invoke global disable. */ }
+    }
     public static void ChannelChanging(object __instance)
     {
+        uint channel=0;
         try
         {
             if (Trace.Enabled) Interlocked.Increment(ref Trace.Changing);
             if (!NativeReady()) return;
-            uint channel = unchecked((uint)(int)Field(__instance, "channel")!);
+            channel = unchecked((uint)(int)Field(__instance, "channel")!);
             if (channel == 0) { if (Trace.Enabled) Interlocked.Increment(ref Trace.ZeroChannel); return; }
             if (!tokens.TryGetValue(__instance, out var token) || token.Handle != channel)
             {
@@ -429,7 +452,7 @@ public static class Bridge
                 uint current = liveMode ? generation!(channel) : 0;
                 if (current == 0) { if (Trace.Enabled) Interlocked.Increment(ref Trace.MissingToken); return; }
                 token = new(channel, current);
-                lock (tokens) { tokens.Remove(__instance); tokens.Add(__instance, token); }
+                tokens.AddOrUpdate(__instance, token);
             }
             object? mixer = Property(__instance, "Mixer");
             string? identifier = mixer == null ? null : (string?)Field(mixer, "Identifier");
@@ -460,25 +483,26 @@ public static class Bridge
                 if (eligible) Interlocked.Increment(ref Trace.EligibleContexts);
             }
         }
-        catch (Exception exception) { Disable(exception); }
+        catch (Exception exception) { RejectChannel(__instance,channel,exception); }
     }
     public static void ChannelAllocated(object __instance)
     {
+        uint channel=0;
         try
         {
             if (Trace.Enabled) Interlocked.Increment(ref Trace.Allocating);
             if (!NativeReady()) return;
-            uint channel = unchecked((uint)(int)Field(__instance, "channel")!);
+            channel = unchecked((uint)(int)Field(__instance, "channel")!);
             uint token = generation!(channel);
             if (channel == 0 || token == 0) { if (Trace.Enabled) Interlocked.Increment(ref Trace.ZeroGeneration); return; }
-            lock (tokens) { tokens.Remove(__instance); tokens.Add(__instance, new(channel, token)); }
+            tokens.AddOrUpdate(__instance,new(channel, token));
             if (detailedPlayback) {
                 var id=PlaybackId(__instance);
                 QueuePlaybackTrace($"[ASIO playback trace] channel tick_ms={Environment.TickCount64} object={id.Id} call={Interlocked.Read(ref id.Calls)} channel={channel} generation={token}");
             }
             if (Trace.Enabled) Interlocked.Increment(ref Trace.Tokens);
         }
-        catch (Exception exception) { Disable(exception); }
+        catch (Exception exception) { RejectChannel(__instance,channel,exception); }
     }
     public static void AllowZeroVolumeEvent(object __instance, ref bool __result)
     {
@@ -496,7 +520,7 @@ public static class Bridge
                 if (Trace.Enabled) Interlocked.Increment(ref Trace.ZeroAllowed);
             }
         }
-        catch (Exception exception) { Disable(exception); }
+        catch (Exception exception) { ReportLocalFault(__instance,exception); }
     }
 
     // Patch the actual Play lambda call site as well as its tiny getter, so a
@@ -518,8 +542,10 @@ public static class Bridge
     [MethodImpl(MethodImplOptions.NoInlining)]
     public static bool ShouldPlayAtZero(object sound)
     {
-        bool result = (bool)Property(sound, "Looping")!;
-        AllowZeroVolumeEvent(sound, ref result);
-        return result;
+        try {
+            bool result = (bool)Property(sound, "Looping")!;
+            AllowZeroVolumeEvent(sound, ref result);
+            return result;
+        }catch(Exception exception){ReportLocalFault(sound,exception);return false;}
     }
 }
