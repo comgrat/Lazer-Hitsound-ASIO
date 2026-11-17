@@ -24,6 +24,7 @@
 #include "event_wake.h"
 #include "channel_failure.h"
 #include "generation_history.h"
+#include "startup_lease.h"
 namespace ui=asio::i18n;
 
 using namespace std;
@@ -552,8 +553,11 @@ static void pulseBackend()
     InterlockedExchange(&MyPool->heartbeat,LONG(now));
 }
 
-static DWORD WINAPI mainloop(LPVOID)
+static DWORD WINAPI mainloop(LPVOID startupContext)
 {
+    // Only the running worker may take over. Creation/scheduling delay remains
+    // covered by startup renewal, which stops before the first event is handled.
+    if(startupContext) static_cast<asio::StartupLease*>(startupContext)->stop();
     unordered_map<HSAMPLE, SampleData> samples;
     unordered_map<HCHANNEL, ChannelData> channels;
     GenerationHistory generations;
@@ -890,7 +894,6 @@ static DWORD getPID(LPCSTR ProcessName)
 }
 
 #include "utf8_log.h"
-#include "startup_lease.h"
 
 static char osuExename[256] = "osu!.exe";
 
@@ -1099,9 +1102,8 @@ int main(int argc, char *argv[])
     settingsWatcherRunning=true;
     HANDLE settingsThread=CreateThread(nullptr,0,watchSettings,nullptr,0,nullptr);
     if(!settingsThread){settingsWatcherRunning=false;CloseHandle(settingsStopEvent);CloseHandle(hProcess);closeBackend();return 1;}
-    startupLease.stop(); // Ownership of heartbeat transfers to the event worker.
     Work = true;
-    HANDLE thread = CreateThread(0, 0, mainloop, 0, 0, 0);
+    HANDLE thread = CreateThread(0, 0, mainloop, &startupLease, 0, 0);
     if (!thread) {
         settingsWatcherRunning=false;SetEvent(settingsStopEvent);WaitForSingleObject(settingsThread,INFINITE);
         CloseHandle(settingsThread);CloseHandle(settingsStopEvent);CloseHandle(hProcess);closeBackend();return 1;
