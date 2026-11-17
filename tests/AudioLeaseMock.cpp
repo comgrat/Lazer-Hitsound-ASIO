@@ -82,6 +82,25 @@ int main()
     check(!audioLeaseValid(&pool, 0xfffffff0u + 250u), "heartbeat age 250 ms is stale");
     check(audioLeaseValid(&pool, 5u), "wrapped heartbeat age is valid (21 ms)");
 
+    // The reader samples now before loading shared heartbeats. Another thread
+    // can publish a slightly newer timestamp in that interval, including at wrap.
+    pool.heartbeat=1001;
+    check(asio::recoveryLeaseValid(&pool,1000),"newer backend heartbeat does not look expired");
+    check(pool.recoveryState==RECOVERY_RUNNING,"newer heartbeat does not latch recovery");
+    pool.heartbeat=1249;
+    check(asio::recoveryLeaseValid(&pool,1000),"concurrent heartbeat lead within lease stays fresh");
+    pool.heartbeat=1250;
+    check(!asio::recoveryLeaseValid(&pool,1000),"future timestamp at lease boundary fails closed");
+    pool.recoveryState=RECOVERY_RUNNING;
+    pool.heartbeat=0;
+    check(asio::recoveryLeaseValid(&pool,0xffffffffu),"newer heartbeat across tick wrap stays fresh");
+    pool.hookAttached=1;pool.heartbeat=1000;pool.hookHeartbeat=1001;
+    check(asio::recoveryLeaseValid(&pool,1000),"newer producer heartbeat also stays fresh");
+    pool.hookHeartbeat=750;
+    check(!asio::recoveryLeaseValid(&pool,1000),"producer at exact 250 ms boundary expires");
+    check(pool.recoveryState==RECOVERY_REQUESTED,"expired producer latches recovery");
+    pool.recoveryState=RECOVERY_RUNNING;pool.hookAttached=0;
+
     // Stale heartbeat, bad magic, null state, missing functions, and failed
     // getuserdata all fail closed with silence instead of passing old audio.
     pool.heartbeat = LONG(GetTickCount() - 300);

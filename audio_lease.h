@@ -10,7 +10,7 @@
 inline bool audioLeaseValid(const sharepool *pool, DWORD now)
 {
     return pool && pool->magic == ASIO_PROTOCOL_MAGIC && pool->backendReady &&
-        DWORD(now - DWORD(pool->heartbeat)) < 250;
+        asio::heartbeatFresh(DWORD(pool->heartbeat),now);
 }
 
 inline FMOD_RESULT F_CALL readAudioLease(FMOD_DSP_STATE *state, float *input, float *output,
