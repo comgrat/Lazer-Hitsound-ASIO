@@ -83,6 +83,7 @@ sharepool *g_pool = nullptr;
 std::atomic<bool> g_probeLockDuringSetAttribute{false};
 std::atomic<int> g_probeLockResult{-1}; // 0 = blocked (good), 1 = entered (bad)
 std::function<void(DWORD)> g_activeFault;
+std::function<void()> g_playFault;
 
 void fail(const char *file, int line, const std::string &message)
 {
@@ -188,6 +189,7 @@ HCHANNEL WINAPI MockBASS_SampleGetChannel(HSAMPLE, DWORD)
 BOOL WINAPI MockBASS_ChannelPlay(DWORD, BOOL)
 {
     ++g_mock.playCalls;
+    if(g_playFault){auto fault=std::move(g_playFault);g_playFault={};fault();}
     if (!g_mock.playOk)
         return FALSE;
     g_mock.active = 1;
@@ -1517,6 +1519,54 @@ void test_failed_recovery_restart_preserves_native_lifetime()
     CHECK_TRUE(routeIs(fixture.channel,asio::Route::External));
 }
 
+void test_local_ineligible_context_preserves_other_channels()
+{
+    resetFixture();Fixture bad=createChannel(true,0.25f);startExternal(bad,0.5f);
+    g_mock.channelHandle+=1;Fixture good=createChannel(true,0.5f);startExternal(good,0.75f);
+    clearEvents();
+    AsioChannelContextV2(bad.channel,channelGeneration(bad.channel),0,0);
+    CHECK_TRUE(routeIs(bad.channel,asio::Route::Native));
+    CHECK_NEAR(g_mock.nativeVolume[bad.channel],0.5f,0.0f);
+    CHECK_TRUE(routeIs(good.channel,asio::Route::External));
+    CHECK_NEAR(g_mock.nativeVolume[good.channel],0.0f,0.0f);
+    CHECK_EQ(MyPool->backendReady,1L);
+    auto events=eventsSnapshot();CHECK_EQ(countState(events,CHANNEL_STATE_PAUSED),1);
+    for(const auto &event:events)if(event.type==EVENT_CHANNEL_STATE)CHECK_EQ(event.data.channelState.channel,bad.channel);
+}
+
+void test_monitor_records_its_expired_heartbeat()
+{
+    resetFixture();MyPool->hookAttached=1;MyPool->epoch=9;
+    MyPool->hookHeartbeat=LONG(GetTickCount()-400);
+    std::vector<MonitorSnapshot> pending;monitorChannelsOnce(pending);
+    CHECK_EQ(MyPool->recoverySource,RECOVERY_SOURCE_MONITOR);
+    CHECK_EQ(MyPool->recoveryStale,RECOVERY_STALE_HOOK);
+    CHECK_TRUE(DWORD(MyPool->recoveryAgeMs)>=400);
+    CHECK_EQ(MyPool->recoveryEpoch,9L);
+    CHECK_EQ(asio::recoveryState(MyPool),RECOVERY_REQUESTED);
+}
+
+void test_debug_lock_diagnostics_measure_blocked_bass()
+{
+    resetFixture();Fixture f=createChannel(true,0.25f);debugLogEnabled=1;
+    HANDLE entered=CreateEventW(nullptr,TRUE,FALSE,nullptr);
+    g_playFault=[&]{SetEvent(entered);Sleep(280);};
+    std::thread play([&]{MyBASS_ChannelPlay(f.channel,FALSE);});
+    CHECK_EQ(WaitForSingleObject(entered,2000),WAIT_OBJECT_0);
+    // Monitor is blocked behind the original BASS call under stateLock.
+    enterState();leaveState();play.join();CloseHandle(entered);
+    CHECK_TRUE(MyPool->stateLockHoldMaxUs>=250000);
+    CHECK_TRUE(MyPool->stateLockWaitMaxUs>=200000);
+    CHECK_TRUE(MyPool->nativeCallMaxUs>=250000);
+    CHECK_EQ(MyPool->nativeCallMaxId,asio::NativePlay);
+    printf("MEASURE lock wait_us=%ld hold_us=%ld native_us=%ld call=%s\n",MyPool->stateLockWaitMaxUs,MyPool->stateLockHoldMaxUs,MyPool->nativeCallMaxUs,asio::nativeCallName(MyPool->nativeCallMaxId));
+    resetFixture();f=createChannel(true,0.25f);debugLogEnabled=0;
+    MyBASS_ChannelPlay(f.channel,FALSE);
+    CHECK_EQ(MyPool->stateLockHoldMaxUs,0L);
+    CHECK_EQ(MyPool->stateLockWaitMaxUs,0L);
+    CHECK_EQ(MyPool->nativeCallMaxUs,0L);
+}
+
 struct TestCase
 {
     const char *name;
@@ -1563,6 +1613,9 @@ int main()
         {"v2_context_rejects_stale_generation_after_handle_reuse",
          test_v2_context_rejects_stale_generation_after_handle_reuse},
         {"unrelated_queries_bypass_state_lock", test_unrelated_queries_bypass_state_lock},
+        {"debug_lock_diagnostics_measure_blocked_bass",test_debug_lock_diagnostics_measure_blocked_bass},
+        {"monitor_records_its_expired_heartbeat",test_monitor_records_its_expired_heartbeat},
+        {"local_ineligible_context_preserves_other_channels",test_local_ineligible_context_preserves_other_channels},
         {"play_query_revalidates_generation_and_revision", test_play_query_revalidates_generation_and_revision},
         {"failed_recovery_restart_preserves_native_lifetime", test_failed_recovery_restart_preserves_native_lifetime},
         {"monitor_revalidates_handle_after_unlocked_query", test_monitor_revalidates_handle_after_unlocked_query},

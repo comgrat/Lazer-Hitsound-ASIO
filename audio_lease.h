@@ -22,7 +22,7 @@ inline FMOD_RESULT F_CALL readAudioLease(FMOD_DSP_STATE *state, float *input, fl
     void *context = nullptr;
     bool active = state && state->functions && state->functions->getuserdata &&
         state->functions->getuserdata(state, &context) == FMOD_OK &&
-        asio::recoveryLeaseValid(static_cast<sharepool *>(context), GetTickCount());
+        asio::recoveryLeaseValid(static_cast<sharepool *>(context), GetTickCount(),RECOVERY_SOURCE_DSP);
     size_t bytes = size_t(length) * inputChannels * sizeof(float);
     if (!active || !input) memset(output, 0, bytes);
     else if (output != input) memcpy(output, input, bytes);

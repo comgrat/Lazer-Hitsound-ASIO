@@ -101,6 +101,19 @@ int main()
     check(pool.recoveryState==RECOVERY_REQUESTED,"expired producer latches recovery");
     pool.recoveryState=RECOVERY_RUNNING;pool.hookAttached=0;
 
+    for(auto source:{RECOVERY_SOURCE_DSP,RECOVERY_SOURCE_BACKEND,RECOVERY_SOURCE_HOOK,RECOVERY_SOURCE_MONITOR}) {
+        for(auto stale:{RECOVERY_STALE_BACKEND,RECOVERY_STALE_HOOK}) {
+            pool.recoveryState=RECOVERY_RUNNING;pool.epoch=7;pool.hookAttached=1;
+            pool.heartbeat=stale==RECOVERY_STALE_BACKEND?600:1000;
+            pool.hookHeartbeat=stale==RECOVERY_STALE_HOOK?650:1000;
+            check(!asio::recoveryLeaseValid(&pool,1000,source),"each trigger source expires its selected heartbeat");
+            check(pool.recoverySource==source && pool.recoveryStale==stale && pool.recoveryAgeMs==(stale==RECOVERY_STALE_BACKEND?400:350) && pool.recoveryEpoch==7 && pool.recoveryTick==1000,"winner records source stale age epoch and tick");
+            asio::requestRecovery(&pool,RECOVERY_SOURCE_UNKNOWN,RECOVERY_STALE_NONE,999,2000);
+            check(pool.recoverySource==source && pool.recoveryTick==1000,"later trigger cannot overwrite first cause");
+        }
+    }
+    pool.recoveryState=RECOVERY_RUNNING;pool.hookAttached=0;
+
     // Stale heartbeat, bad magic, null state, missing functions, and failed
     // getuserdata all fail closed with silence instead of passing old audio.
     pool.heartbeat = LONG(GetTickCount() - 300);

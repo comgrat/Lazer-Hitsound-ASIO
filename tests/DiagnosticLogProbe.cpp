@@ -53,6 +53,14 @@ int main(int argc,char** argv) {
         asio::writeRedirectedUtf8Preamble(output);fclose(output);
         check(bytes(redirected)==bom+"[ASIO_READY] 中文状态\n","stdout preamble precedes status exactly once");
     }
+    const auto timed=root+L"\\timed.log";
+    auto* timedLog=new asio::AsyncTextLog;
+    check(timedLog->startFile(timed.c_str()),"open timestamp fixture");
+    auto before=GetTickCount64();timedLog->write("first\nsecond\n");
+    check(timedLog->stop(),"timestamp logger stops");auto after=GetTickCount64();
+    const auto content=bytes(timed);unsigned long long a=0,b=0;
+    int parsed=sscanf(content.c_str()+3,"[t=%llu] first\n[t=%llu] second",&a,&b);
+    check(parsed==2 && a==b && a>=before && b<=after,"each logical line shares boot-relative monotonic timestamp");
     printf("DiagnosticLogProbe checks=%d failures=%d\n",checks,failures);
     return failures?1:0;
 }

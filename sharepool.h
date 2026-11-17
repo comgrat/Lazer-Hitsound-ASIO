@@ -43,7 +43,7 @@ typedef DWORD HCHANNEL;
 
 const int EVENT_POOL_SIZE = 8192;
 const int MAPPING_NAME_LENGTH = 128;
-const DWORD ASIO_PROTOCOL_MAGIC = 0x41534935; // Coordinated, latched recovery protocol.
+const DWORD ASIO_PROTOCOL_MAGIC = 0x41534936; // Recovery cause and lock diagnostics.
 const int SAMPLE_ACK_COUNT = 4096;
 const int CHANNEL_FAILURE_COUNT = 256;
 
@@ -68,7 +68,10 @@ enum RecoveryState : LONG
     RECOVERY_REQUESTED = 1,
     RECOVERY_BACKEND_STOPPED = 2,
     RECOVERY_REPLAYING = 3,
+    RECOVERY_RECORDING = 4, // CAS winner publishes cause before REQUESTED.
 };
+enum RecoverySource : LONG { RECOVERY_SOURCE_UNKNOWN=0, RECOVERY_SOURCE_DSP=1, RECOVERY_SOURCE_BACKEND=2, RECOVERY_SOURCE_HOOK=3, RECOVERY_SOURCE_MONITOR=4 };
+enum RecoveryStale : LONG { RECOVERY_STALE_NONE=0, RECOVERY_STALE_BACKEND=1, RECOVERY_STALE_HOOK=2 };
 
 enum ChannelState
 {
@@ -176,6 +179,15 @@ struct sharepool
     volatile LONG hookHeartbeat;
     volatile LONG hookAttached;
     volatile LONG recoveries;
+    volatile LONG recoverySource;
+    volatile LONG recoveryStale;
+    volatile LONG recoveryAgeMs;
+    volatile LONG recoveryEpoch;
+    volatile LONG recoveryTick;
+    volatile LONG stateLockWaitMaxUs;
+    volatile LONG stateLockHoldMaxUs;
+    volatile LONG nativeCallMaxUs;
+    volatile LONG nativeCallMaxId;
     volatile LONG retiredThroughGeneration; // Hook snapshot fence for delayed producers.
     volatile LONG failureHead;
     volatile LONG failureTail;

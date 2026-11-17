@@ -74,9 +74,25 @@ public:
         if(length<=0)return;
         unsigned size=static_cast<unsigned>(length)<sizeof(text)?static_cast<unsigned>(length):sizeof(text)-1;
         if(!TryAcquireSRWLockExclusive(&lock)){lost.fetch_add(1,std::memory_order_relaxed);return;}
-        unsigned next=(tail+1)%capacity;
-        if(next==head){ReleaseSRWLockExclusive(&lock);lost.fetch_add(1,std::memory_order_relaxed);return;}
-        lines[tail].size=static_cast<unsigned short>(size);memcpy(lines[tail].text,text,size);tail=next;
+        // Serialize timestamp sampling with enqueue order. Both processes use
+        // the Windows boot-relative millisecond clock. No I/O in producers.
+        const auto tick=GetTickCount64();
+        unsigned start=0;
+        while(start<size) {
+            unsigned end=start;while(end<size && text[end]!='\n')++end;
+            if(end<size)++end;
+            unsigned next=(tail+1)%capacity;
+            if(next==head){lost.fetch_add(1,std::memory_order_relaxed);break;}
+            char* output=lines[tail].text;
+            const unsigned prefix=unsigned(snprintf(output,sizeof(lines[tail].text),"[t=%llu] ",tick));
+            unsigned count=end-start;
+            if(count>sizeof(lines[tail].text)-prefix-1)count=sizeof(lines[tail].text)-prefix-1;
+            memcpy(output+prefix,text+start,count);
+            unsigned written=prefix+count;
+            if(written && output[written-1]!='\n')output[written++]='\n';
+            lines[tail].size=static_cast<unsigned short>(written);tail=next;
+            start=end;
+        }
         ReleaseSRWLockExclusive(&lock);SetEvent(wake);
     }
     void writeV(const char* format,va_list args) {

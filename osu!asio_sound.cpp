@@ -153,11 +153,21 @@ static void traceVoice(const char *action, const ChannelData &data)
         static_cast<unsigned long>(data.sample), data.voiceId, data.volume, outputVolume);
 }
 
+#include "lock_diagnostics.h"
+
 static void reportPlaybackStats()
 {
     if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu finished=%llu missingSample=%llu staleRejected=%llu\n",
            MyPool->backendReady, playbackStats.samplesLoaded, playbackStats.playRequests,
            playbackStats.starts, playbackStats.finished, playbackStats.missingSamples, playbackStats.staleRejected);
+    if(MyPool && debugLogEnabled && playbackLog) {
+        if(MyPool->recoveryState!=RECOVERY_RECORDING)
+            playbackLog->write("[ASIO recovery status] cause=%s stale=%s age_ms=%lu trigger_epoch=%ld trigger_tick=%lu\n",
+                asio::recoverySourceName(MyPool->recoverySource),asio::recoveryStaleName(MyPool->recoveryStale),
+                DWORD(MyPool->recoveryAgeMs),MyPool->recoveryEpoch,DWORD(MyPool->recoveryTick));
+        playbackLog->write("[ASIO lock] wait_max_us=%ld hold_max_us=%ld native_max_us=%ld native=%s\n",
+            MyPool->stateLockWaitMaxUs,MyPool->stateLockHoldMaxUs,MyPool->nativeCallMaxUs,asio::nativeCallName(MyPool->nativeCallMaxId));
+    }
     if (MyPool && MyPool->diagnosticsEnabled && playbackLog)
     {
         auto delay = queueLatency.summary();
@@ -538,7 +548,7 @@ static void pulseBackend()
     const DWORD now=GetTickCount();
     // Observe expiry before refreshing; otherwise the worker could erase the
     // only evidence of its own stall before the hook or DSP sees it.
-    if(MyPool->heartbeat) asio::recoveryLeaseValid(MyPool,now);
+    if(MyPool->heartbeat) asio::recoveryLeaseValid(MyPool,now,RECOVERY_SOURCE_BACKEND);
     InterlockedExchange(&MyPool->heartbeat,LONG(now));
 }
 
@@ -574,7 +584,7 @@ static DWORD WINAPI mainloop(LPVOID)
             if(stopForRecovery(samples,channels)) generations=GenerationHistory{};
             continue;
         }
-        if(phase==RECOVERY_BACKEND_STOPPED) {
+        if(phase==RECOVERY_BACKEND_STOPPED || phase==RECOVERY_RECORDING) {
             if(backendWake) WaitForSingleObject(backendWake,5);else Sleep(1);
             continue;
         }
@@ -586,7 +596,7 @@ static DWORD WINAPI mainloop(LPVOID)
                 break;
             pulseBackend();
             phase=asio::recoveryState(MyPool);
-            if(phase==RECOVERY_REQUESTED || phase==RECOVERY_BACKEND_STOPPED) break;
+            if(phase==RECOVERY_REQUESTED || phase==RECOVERY_BACKEND_STOPPED || phase==RECOVERY_RECORDING) break;
             Event event = MyPool->events[MyPool->head];
             MemoryBarrier();
             MyPool->head = (MyPool->head + 1) % EVENT_POOL_SIZE;
@@ -600,7 +610,10 @@ static DWORD WINAPI mainloop(LPVOID)
                 if(phase==RECOVERY_REPLAYING && MyPool->backendReady) {
                     InterlockedIncrement(&MyPool->recoveries);
                     InterlockedCompareExchange(&MyPool->recoveryState,RECOVERY_RUNNING,RECOVERY_REPLAYING);
-                    debugPrintf("[ASIO recovery] epoch=%ld samples=%zu; new lifetimes enabled\n",MyPool->epoch,samples.size());
+                    debugPrintf("[ASIO recovery] epoch=%ld samples=%zu cause=%s stale=%s age_ms=%lu trigger_epoch=%ld trigger_tick=%lu; new lifetimes enabled\n",
+                        MyPool->epoch,samples.size(),asio::recoverySourceName(MyPool->recoverySource),
+                        asio::recoveryStaleName(MyPool->recoveryStale),DWORD(MyPool->recoveryAgeMs),
+                        MyPool->recoveryEpoch,DWORD(MyPool->recoveryTick));
                 }
                 continue;
             }
