@@ -369,6 +369,58 @@ static void watching() {
     check(activeChannels() == 0, "event-worker exit stops the existing looping voice");
 }
 
+static void controlChannel() {
+    section("stdin control channel drags volume live; an unchanged file never reverts it");
+    int parsed = -1;
+    check(parseControlLine("volume 0", parsed) && parsed == 0 && parseControlLine("volume 100", parsed) && parsed == 100,
+        "control lines accept the full 0-100 range");
+    check(!parseControlLine("volume 101", parsed) && !parseControlLine("volume -1", parsed) && !parseControlLine("volume", parsed) &&
+        !parseControlLine("volume 5x", parsed) && !parseControlLine("Volume 5", parsed) && !parseControlLine("debug 1", parsed),
+        "malformed or unknown control lines are ignored");
+    System system;
+    const auto file = artifacts + L"\\control-channel.ini";
+    writeBytes(file, ini(40));
+    outputVolume = 40; requestedOutputVolume = 40;
+    require(FMOD_ChannelGroup_SetVolume(asioOutputGroup, 0.4f) == FMOD_OK, "initialize control test master");
+    HANDLE readEnd = nullptr, writeEnd = nullptr;
+    require(CreatePipe(&readEnd, &writeEnd, nullptr, 0) != FALSE, "create anonymous control pipe");
+    HANDLE previousInput = GetStdHandle(STD_INPUT_HANDLE);
+    SetStdHandle(STD_INPUT_HANDLE, readEnd);
+    controlStopping = false;
+    MSG message = {};
+    while (PeekMessage(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE)) {}
+    HANDLE control = CreateThread(nullptr, 0, readControl, nullptr, 0, nullptr);
+    require(control != nullptr, "start production control reader");
+    auto send = [&](const char *text) { DWORD written = 0; WriteFile(writeEnd, text, DWORD(strlen(text)), &written, nullptr); };
+    {
+        Watcher watcher(file); Worker worker;
+        Sleep(800); // Let the watcher observe the stable, already-applied file.
+        for (int percent : {55, 70, 85}) {
+            send(("volume " + std::to_string(percent) + "\r\n").c_str());
+            bool reached = eventually([&] { float value = -1; return FMOD_ChannelGroup_GetVolume(asioOutputGroup, &value) == FMOD_OK &&
+                closeTo(value, percent / 100.0f); }, 500);
+            check(reached, "control line reaches the output bus without a file save");
+        }
+        send("volume 6"); send("0\n"); // Split writes form one line.
+        check(eventually([] { float value = -1; return FMOD_ChannelGroup_GetVolume(asioOutputGroup, &value) == FMOD_OK && closeTo(value, 0.6f); }, 500),
+            "control line split across pipe writes is applied once complete");
+        Sleep(700);
+        float held = -1; FMOD_ChannelGroup_GetVolume(asioOutputGroup, &held);
+        check(closeTo(held, 0.6f), "unchanged config.ini does not revert a newer control value");
+        writeBytes(file, ini(30));
+        check(eventually([] { float value = -1; return FMOD_ChannelGroup_GetVolume(asioOutputGroup, &value) == FMOD_OK && closeTo(value, 0.3f); }),
+            "a real config save still applies after control updates");
+        CloseHandle(writeEnd); writeEnd = nullptr;
+        check(WaitForSingleObject(control, 2000) == WAIT_OBJECT_0, "control reader exits on owner EOF");
+        check(PeekMessage(&message, nullptr, WM_QUIT, WM_QUIT, PM_REMOVE) != FALSE, "owner EOF requests orderly backend shutdown");
+        watcher.stop(); worker.stop();
+    }
+    CloseHandle(control);
+    SetStdHandle(STD_INPUT_HANDLE, previousInput);
+    CloseHandle(readEnd);
+    require(DeleteFileW(file.c_str()) != FALSE, "remove control fixture INI");
+}
+
 static void workerFinishAndLateEvents() {
     section("production worker sweeps natural completion before late same-generation PLAY");
     System system; MappedSample mapped(29, 6, 2400);
@@ -633,7 +685,7 @@ int wmain(int argc, wchar_t **argv) {
         artifacts.find(L"..") != std::wstring::npos) return 2;
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
-        parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching();
+        parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching(); controlChannel();
         workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend(); recoveryHandshake(); recoveryReloadFailure();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());

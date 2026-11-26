@@ -2,6 +2,15 @@
 
 The community review of v1.1.0 identified real portability, testing and maintenance costs. This record distinguishes implemented fixes from changes that need a protocol design or external authorization.
 
+## v1.3.0: single window entry
+
+- `LazerASIO.exe` replaces `config.exe`, `osu!asio_sound.exe`, `osu!asio_sound (select osu exename).exe`, `AsioDeviceCheck.exe`, `Start-ASIO.cmd`, `Change-Language.cmd`, `Test-ASIO-Device.cmd` and `managed/Start-Standalone.ps1`/`Localization.ps1`. The package exporter removes those names from an older package folder. Their sources were removed from the tree in v1.3.0 and remain in history.
+- The watcher is a native port. It no longer filters by executable name: every process is checked once for the lazer runtime files and a CLI header in `osu.Game.dll`/`osu.Framework.dll` (approximating the former `AssemblyName` check; the in-process contract remains the compatibility gate). Injection waits until `coreclr.dll` and `clrjit.dll` are loaded and the process is at least 2 s old (8 s without the JIT). `--watch --process <name>` remains as an optional filter for scripted checks.
+- Before watching, the window refuses an incomplete tool folder (backend, hook, FMOD, `config.ini`, managed bridge, deps file, Harmony) so nothing is injected that cannot load. A user report of `0x80131509` (COR_E_INVALIDOPERATION from `load_assembly_and_get_function_pointer`) is the expected symptom of a missing or mismatched `managed\` folder; it is not yet confirmed by logs. On failure the Activity panel now shows the tail of `managed-<pid>.log` and `asio_hook.log` (the latter only with Debug log on).
+- The window fixes the contract to Adaptive: it is not shown in the UI, every window write stores `Contract Mode = 1`, and a hand-edited `0` is normalized at window start and before each attachment. Strict remains in the managed contract code and its tests for maintainers.
+- Live volume uses the backend's new `--control-stdin` pipe. Closing the window now asks the backend to shut down in order (EOF) instead of being killed; a backend that is still injecting is terminated after 3 s, matching the former bounded Kill.
+- Not yet established: attachment to a real client, audible live volume changes while dragging, device test tones on real hardware, tray behaviour across Explorer restarts. These need a user session with an ASIO device and a reviewed client.
+
 ## Round5 / v1.2.1 (software checks and limited user-session evidence)
 
 ### Implemented and checked in software

@@ -1,7 +1,8 @@
 # Independent QA for the portable ASIOHook share package.
 #
 # Safety rules:
-#   - Only config.exe --show and config.exe --list are executed.
+#   - Only LazerASIO.exe --show and --list are executed (config.exe in
+#     layouts before 1.3.0). The window itself is never opened.
 #   - --show must be read-only and must not enumerate or open a device.
 #   - --list enumerates ASIO drivers but must never call FMOD_System_Init.
 #   - No game, no account, no beatmap data, no interactive configuration.
@@ -353,28 +354,37 @@ $allDirectories = @(Get-ChildItem -LiteralPath $package -Recurse -Force -Directo
 # Required files
 # ---------------------------------------------------------------------------
 $required = [ordered]@{}
-$required['config.exe'] = Find-PackageFile -Root $package -Candidates @('config.exe')
+$guiLayout = Test-Path -LiteralPath (Join-Path $package 'LazerASIO.exe')
+if ($guiLayout) {
+    $required['window entry'] = Find-PackageFile -Root $package -Candidates @('LazerASIO.exe')
+} else {
+    $required['config.exe'] = Find-PackageFile -Root $package -Candidates @('config.exe')
+    $required['player executable'] = Find-PackageFile -Root $package -Candidates @('osu!asio_sound.exe')
+}
 $required['config.ini'] = Find-PackageFile -Root $package -Candidates @('config.ini')
-$required['player executable'] = Find-PackageFile -Root $package -Candidates @('osu!asio_sound.exe')
 $newEntryLayout = Test-Path -LiteralPath (Join-Path $package 'asio_backend.exe')
 $standaloneLayout = Test-Path -LiteralPath (Join-Path $package 'managed\Start-Standalone.ps1')
 if ($newEntryLayout) { $required['audio backend'] = Find-PackageFile -Root $package -Candidates @('asio_backend.exe') }
 $required['hook DLL'] = Find-PackageFile -Root $package -Candidates @('osu!asio_sound.dll')
 $required['fmod.dll'] = Find-PackageFile -Root $package -Candidates @('fmod.dll')
-$required['device checker'] = Find-PackageFile -Root $package -Candidates @('AsioDeviceCheck.exe')
+if (!$guiLayout) { $required['device checker'] = Find-PackageFile -Root $package -Candidates @('AsioDeviceCheck.exe') }
 $multilingualLayout=Test-Path -LiteralPath (Join-Path $package 'locales\en.lang')
 if($multilingualLayout){
-    $required['language selector']=Find-PackageFile -Root $package -Candidates @('Change-Language.cmd')
-    $required['watcher localization']=Find-PackageFile -Root $package -Candidates @('managed\Localization.ps1')
+    if (!$guiLayout) {
+        $required['language selector']=Find-PackageFile -Root $package -Candidates @('Change-Language.cmd')
+        $required['watcher localization']=Find-PackageFile -Root $package -Candidates @('managed\Localization.ps1')
+    }
     foreach($code in @('zh-CN','zh-TW','en','fr','es')){$required[('language '+$code)]=Find-PackageFile -Root $package -Candidates @('locales\'+$code+'.lang')}
 }
-if (-not $required['device checker']) {
+if (!$guiLayout -and -not $required['device checker']) {
     $deviceCheck = Get-ChildItem -LiteralPath $package -Recurse -File -Filter '*DeviceCheck*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($deviceCheck) { $required['device checker'] = $deviceCheck.FullName }
 }
 $required['managed bridge'] = Find-PackageFile -Root $package -Candidates @('managed\Asio.ManagedBridge.dll')
 $required['managed Harmony'] = Find-PackageFile -Root $package -Candidates @('managed\0Harmony.dll')
-if ($standaloneLayout) {
+if ($guiLayout) {
+    # The watcher runs inside LazerASIO.exe; no managed launcher script ships.
+} elseif ($standaloneLayout) {
     $required['managed standalone watcher'] = Find-PackageFile -Root $package -Candidates @('managed\Start-Standalone.ps1')
 } elseif ($newEntryLayout) {
     $required['managed program inventory'] = Find-PackageFile -Root $package -Candidates @('managed\ClientFiles.ps1')
@@ -389,12 +399,12 @@ if (-not $required['managed deps JSON']) {
         if ($depsFile) { $required['managed deps JSON'] = $depsFile.FullName }
     }
 }
-if (!$standaloneLayout) {
+if (!$standaloneLayout -and !$guiLayout) {
     $required['managed Start-Offline'] = Find-PackageFile -Root $package -Candidates @('managed\Start-Offline.ps1')
     $required['managed Prepare-OfflineClient'] = Find-PackageFile -Root $package -Candidates @('managed\Prepare-OfflineClient.ps1')
     $required['managed Start-Portable'] = Find-PackageFile -Root $package -Candidates @('managed\Start-Portable.ps1')
 }
-$required['Start-ASIO.cmd'] = Find-PackageFile -Root $package -Candidates @('distribution\Start-ASIO.cmd', 'Start-ASIO.cmd')
+if (!$guiLayout) { $required['Start-ASIO.cmd'] = Find-PackageFile -Root $package -Candidates @('distribution\Start-ASIO.cmd', 'Start-ASIO.cmd') }
 $required['Chinese README'] = Find-PackageFile -Root $package -Candidates @('README.md')
 if (-not $required['Chinese README']) {
     $rootReadme = Get-ChildItem -LiteralPath $package -File -Filter 'README*.md' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -410,6 +420,11 @@ foreach ($label in @($required.Keys)) {
     Add-Check -Name ("required file: {0}" -f $label) -Ok ([bool]$path) -Detail $(if ($path) { Get-RelativePath -Root $package -FullPath $path } else { 'missing' })
 }
 $missingRequired = @($required.Keys | Where-Object { -not $required[$_] })
+if ($guiLayout) {
+    $replaced = @('config.exe','osu!asio_sound.exe','osu!asio_sound (select osu exename).exe','AsioDeviceCheck.exe','Start-ASIO.cmd','Test-ASIO-Device.cmd','Change-Language.cmd','managed\Start-Standalone.ps1','managed\Localization.ps1') |
+        Where-Object { Test-Path -LiteralPath (Join-Path $package $_) }
+    Add-Check -Name 'entry points replaced by LazerASIO.exe are absent' -Ok (@($replaced).Count -eq 0) -Detail ($(if (@($replaced).Count) { $replaced -join ', ' } else { 'single window entry' }))
+}
 Add-Check -Name 'required file set complete' -Ok ($missingRequired.Count -eq 0) -Detail ($(if ($missingRequired.Count) { 'missing: ' + ($missingRequired -join ', ') } else { 'all required files present' }))
 
 $requiredFiles = @($required.Values | Where-Object { $_ } | ForEach-Object { Get-Item -LiteralPath $_ })
@@ -522,7 +537,8 @@ if ($readmePath) {
         Add-Check -Name 'README names supported client 2026.1026.0-tachyon' -Ok ($readmeText -match '2026\.1026\.0-tachyon') -Detail 'version string'
         Add-Check -Name 'README mentions client isolation directory' -Ok ($readmeText -match '(?i)client') -Detail 'client'
         Add-Check -Name 'README mentions config' -Ok ($readmeText -match '(?i)config\.(exe|ini)') -Detail 'config.exe/config.ini'
-        Add-Check -Name 'README mentions launcher' -Ok ($readmeText -match '(?i)Start-(ASIO|Portable)') -Detail 'Start-ASIO/Start-Portable'
+        if ($guiLayout) { Add-Check -Name 'README mentions launcher' -Ok ($readmeText.Contains('LazerASIO.exe')) -Detail 'LazerASIO.exe' }
+        else { Add-Check -Name 'README mentions launcher' -Ok ($readmeText -match '(?i)Start-(ASIO|Portable)') -Detail 'Start-ASIO/Start-Portable' }
         Add-Check -Name 'README says client is not included' -Ok ($readmeText -match '(?:\u4E0D\u5305\u542B|\u4E0D\u542B|\u4E0D\u63D0\u4F9B)[^\r\n]{0,24}(?:\u5BA2\u6237\u7AEF|\u6E38\u620F)') -Detail 'no-client statement'
         Add-Check -Name 'README mentions offline/account safety' -Ok ($readmeText -match '(?:\u79BB\u7EBF|\u8D26\u53F7)') -Detail 'offline/account'
     }
@@ -759,7 +775,7 @@ else {
 # Native PE dependencies: no external VC runtime
 # ---------------------------------------------------------------------------
 $nativeFiles = New-Object System.Collections.ArrayList
-foreach ($label in @('config.exe', 'player executable', 'audio backend', 'hook DLL', 'fmod.dll', 'device checker')) {
+foreach ($label in @('window entry', 'config.exe', 'player executable', 'audio backend', 'hook DLL', 'fmod.dll', 'device checker')) {
     $path = $required[$label]
     if ($path -and -not $nativeFiles.Contains($path)) { $null = $nativeFiles.Add($path) }
 }
@@ -825,7 +841,7 @@ Add-Check -Name 'package copied to path containing spaces' -Ok ($relocation -mat
 Add-Check -Name 'all required files present after relocation' -Ok ($missingInRelocation.Count -eq 0) -Detail ($(if ($missingInRelocation.Count) { $missingInRelocation -join ', ' } else { 'all present' }))
 
 $relocatedConfig = Join-Path $relocation 'config.ini'
-$relocatedConfigExe = Join-Path $relocation 'config.exe'
+$relocatedConfigExe = Join-Path $relocation $(if ($guiLayout) { 'LazerASIO.exe' } else { 'config.exe' })
 $sourceManifest = Get-TreeManifest -Root $package
 $relocatedManifestBefore = Get-TreeManifest -Root $relocation
 $copyDiff = @(Compare-TreeManifest -Before $sourceManifest -After $relocatedManifestBefore)
@@ -873,9 +889,9 @@ $configExeAscii = [Text.Encoding]::ASCII.GetString($configExeBytes)
 $configExeUtf8 = [Text.Encoding]::UTF8.GetString($configExeBytes)
 $hasShowFlag = $configExeAscii.Contains('--show')
 $hasListFlag = $configExeAscii.Contains('--list')
-Add-Check -Name 'config.exe advertises --show' -Ok $hasShowFlag -Detail 'binary flag string'
-Add-Check -Name 'config.exe advertises --list' -Ok $hasListFlag -Detail 'binary flag string'
-Add-Check -Name 'config.exe carries stereo L/R output instruction' -Ok ($configExeUtf8 -match '\u7ACB\u4F53\u58F0L/R' -or ($multilingualLayout -and $configExeUtf8.Contains('Output is stereo L/R'))) -Detail 'stereo L/R marker'
+Add-Check -Name 'LazerASIO.exe advertises --show' -Ok $hasShowFlag -Detail 'binary flag string'
+Add-Check -Name 'LazerASIO.exe advertises --list' -Ok $hasListFlag -Detail 'binary flag string'
+Add-Check -Name 'LazerASIO.exe carries stereo L/R output instruction' -Ok ($configExeUtf8 -match '\u7ACB\u4F53\u58F0L/R' -or ($multilingualLayout -and ($configExeUtf8.Contains('Output is stereo L/R') -or ($guiLayout -and $configExeUtf8.Contains('(stereo L/R)'))))) -Detail 'stereo L/R marker'
 
 $relocatedPlayer = Join-Path $relocation $(if($newEntryLayout){'asio_backend.exe'}else{'osu!asio_sound.exe'})
 if (Test-Path -LiteralPath $relocatedPlayer) {
@@ -893,45 +909,45 @@ if ($hasShowFlag -and $hasListFlag -and (Test-Path -LiteralPath $relocatedConfig
     $showStdout = Join-Path $relocationBase 'config-show.stdout.log'
     $showStderr = Join-Path $relocationBase 'config-show.stderr.log'
     $showResult = Invoke-ConfigProcess -Executable $relocatedConfigExe -Arguments '--show' -WorkingDirectory $decoyCwd -StdoutPath $showStdout -StderrPath $showStderr
-    Add-Check -Name 'config.exe --show exits 0' -Ok ($null -ne $showResult -and $showResult.ExitCode -eq 0 -and -not $showResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $showResult.ExitCode, $showResult.TimedOut, $showResult.DurationMilliseconds)
+    Add-Check -Name 'LazerASIO.exe --show exits 0' -Ok ($null -ne $showResult -and $showResult.ExitCode -eq 0 -and -not $showResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $showResult.ExitCode, $showResult.TimedOut, $showResult.DurationMilliseconds)
     if ($null -ne $showResult) {
-        Add-Check -Name 'config.exe --show did not time out' -Ok (-not $showResult.TimedOut) -Detail ("{0} ms" -f $showResult.DurationMilliseconds)
-        Add-Check -Name 'config.exe --show prints supported config fields' -Ok ($showResult.Stdout -match '(?m)^\[Config\]') -Detail '[Config]'
+        Add-Check -Name 'LazerASIO.exe --show did not time out' -Ok (-not $showResult.TimedOut) -Detail ("{0} ms" -f $showResult.DurationMilliseconds)
+        Add-Check -Name 'LazerASIO.exe --show prints supported config fields' -Ok ($showResult.Stdout -match '(?m)^\[Config\]') -Detail '[Config]'
         if ($configValues.Count -eq $expectedKeys.Count) {
             $showValueMissing = @(Test-ConfigValueLines -Text $showResult.Stdout -Values $configValues)
-            Add-Check -Name 'config.exe --show reads exe-side config values' -Ok ($showValueMissing.Count -eq 0) -Detail ($(if ($showValueMissing.Count) { 'missing: ' + ($showValueMissing -join ', ') } else { 'all supported values match package config.ini' }))
+            Add-Check -Name 'LazerASIO.exe --show reads exe-side config values' -Ok ($showValueMissing.Count -eq 0) -Detail ($(if ($showValueMissing.Count) { 'missing: ' + ($showValueMissing -join ', ') } else { 'all supported values match package config.ini' }))
         }
         else {
-            Add-Check -Name 'config.exe --show reads exe-side config values' -Ok $false -Detail 'package config.ini missing or incomplete; value check not possible'
+            Add-Check -Name 'LazerASIO.exe --show reads exe-side config values' -Ok $false -Detail 'package config.ini missing or incomplete; value check not possible'
         }
         $showExtraLines = @($showResult.Stdout -split "`r?`n" | Where-Object {
                 $_ -and $_ -notmatch '^\[Config\]$' -and $_ -notmatch '^(Buffer Size|ASIO Driver ID|Sample Rate|Output Volume|Debug Log|Contract Mode)\s*='
             })
-        Add-Check -Name 'config.exe --show prints only the supported config fields' -Ok ($showExtraLines.Count -eq 0) -Detail ($(if ($showExtraLines.Count) { ($showExtraLines | Select-Object -First 4) -join ' | ' } else { 'no device name or extra output' }))
+        Add-Check -Name 'LazerASIO.exe --show prints only the supported config fields' -Ok ($showExtraLines.Count -eq 0) -Detail ($(if ($showExtraLines.Count) { ($showExtraLines | Select-Object -First 4) -join ' | ' } else { 'no device name or extra output' }))
         $decoyHits = New-Object System.Collections.ArrayList
         foreach ($key in @($decoyMap.Keys)) {
             if ($configValues.ContainsKey($key) -and [string]$configValues[$key] -eq [string]$decoyMap[$key]) { continue }
             $pattern = '(?im)^\s*' + [regex]::Escape($key) + '\s*=\s*' + [regex]::Escape($decoyMap[$key]) + '\s*$'
             if ($showResult.Stdout -match $pattern) { $null = $decoyHits.Add(("{0}={1}" -f $key, $decoyMap[$key])) }
         }
-        Add-Check -Name 'config.exe --show does not read cwd decoy config' -Ok ($decoyHits.Count -eq 0) -Detail ($(if ($decoyHits.Count) { 'decoy values found: ' + ($decoyHits -join ', ') } else { 'package values used' }))
+        Add-Check -Name 'LazerASIO.exe --show does not read cwd decoy config' -Ok ($decoyHits.Count -eq 0) -Detail ($(if ($decoyHits.Count) { 'decoy values found: ' + ($decoyHits -join ', ') } else { 'package values used' }))
         $showForbidden = @('System_Init', 'FMOD_System_Init', 'FMOD System Initialize', '(?:\u6B63\u5728\u68C0\u67E5\u6240\u9009\u8BBE\u5907|\u914D\u7F6E\u5DF2\u4FDD\u5B58)')
         $showForbiddenHits = @($showForbidden | Where-Object { $showResult.Stdout -match $_ -or $showResult.Stderr -match $_ })
-        Add-Check -Name 'config.exe --show does not enumerate or open a device' -Ok ($showForbiddenHits.Count -eq 0 -and $showResult.Stdout -notmatch '(?i)DeviceID\s+\d+') -Detail ($(if ($showForbiddenHits.Count) { $showForbiddenHits -join ', ' } else { 'no init/enumeration markers' }))
-        Add-Check -Name 'config.exe --show does not write cwd' -Ok ((Get-Sha256 -Path $decoyConfigPath) -eq $decoyHashBefore -and @(Compare-TreeManifest -Before $decoyManifestBefore -After (Get-TreeManifest -Root $decoyCwd)).Count -eq 0) -Detail 'decoy cwd unchanged'
-        Add-Check -Name 'config.exe --show leaves package config.ini unchanged' -Ok ($relocatedConfigHashBefore -ne '' -and (Get-Sha256IfExists -Path $relocatedConfig) -eq $relocatedConfigHashBefore) -Detail 'relocated config.ini hash unchanged'
+        Add-Check -Name 'LazerASIO.exe --show does not enumerate or open a device' -Ok ($showForbiddenHits.Count -eq 0 -and $showResult.Stdout -notmatch '(?i)DeviceID\s+\d+') -Detail ($(if ($showForbiddenHits.Count) { $showForbiddenHits -join ', ' } else { 'no init/enumeration markers' }))
+        Add-Check -Name 'LazerASIO.exe --show does not write cwd' -Ok ((Get-Sha256 -Path $decoyConfigPath) -eq $decoyHashBefore -and @(Compare-TreeManifest -Before $decoyManifestBefore -After (Get-TreeManifest -Root $decoyCwd)).Count -eq 0) -Detail 'decoy cwd unchanged'
+        Add-Check -Name 'LazerASIO.exe --show leaves package config.ini unchanged' -Ok ($relocatedConfigHashBefore -ne '' -and (Get-Sha256IfExists -Path $relocatedConfig) -eq $relocatedConfigHashBefore) -Detail 'relocated config.ini hash unchanged'
 
         $secondShowStdout = Join-Path $relocationBase 'config-show-empty-cwd.stdout.log'
         $secondShowStderr = Join-Path $relocationBase 'config-show-empty-cwd.stderr.log'
         $secondShowResult = Invoke-ConfigProcess -Executable $relocatedConfigExe -Arguments '--show' -WorkingDirectory $emptyCwd -StdoutPath $secondShowStdout -StderrPath $secondShowStderr
-        Add-Check -Name 'config.exe --show exits 0 from a second cwd' -Ok ($null -ne $secondShowResult -and $secondShowResult.ExitCode -eq 0 -and -not $secondShowResult.TimedOut) -Detail ("exit={0}" -f $secondShowResult.ExitCode)
-        Add-Check -Name 'config.exe --show output is cwd-independent' -Ok ($null -ne $secondShowResult -and $secondShowResult.Stdout -eq $showResult.Stdout) -Detail 'same output from decoy cwd and empty cwd'
-        Add-Check -Name 'config.exe --show does not write config.ini in empty cwd' -Ok (-not (Test-Path -LiteralPath (Join-Path $emptyCwd 'config.ini')) -and @(Compare-TreeManifest -Before $emptyManifestBefore -After (Get-TreeManifest -Root $emptyCwd)).Count -eq 0) -Detail 'empty cwd unchanged'
+        Add-Check -Name 'LazerASIO.exe --show exits 0 from a second cwd' -Ok ($null -ne $secondShowResult -and $secondShowResult.ExitCode -eq 0 -and -not $secondShowResult.TimedOut) -Detail ("exit={0}" -f $secondShowResult.ExitCode)
+        Add-Check -Name 'LazerASIO.exe --show output is cwd-independent' -Ok ($null -ne $secondShowResult -and $secondShowResult.Stdout -eq $showResult.Stdout) -Detail 'same output from decoy cwd and empty cwd'
+        Add-Check -Name 'LazerASIO.exe --show does not write config.ini in empty cwd' -Ok (-not (Test-Path -LiteralPath (Join-Path $emptyCwd 'config.ini')) -and @(Compare-TreeManifest -Before $emptyManifestBefore -After (Get-TreeManifest -Root $emptyCwd)).Count -eq 0) -Detail 'empty cwd unchanged'
 
         $listStdout = Join-Path $relocationBase 'config-list.stdout.log'
         $listStderr = Join-Path $relocationBase 'config-list.stderr.log'
         $listResult = Invoke-ConfigProcess -Executable $relocatedConfigExe -Arguments '--list' -WorkingDirectory $emptyCwd -StdoutPath $listStdout -StderrPath $listStderr
-        Add-Check -Name 'config.exe --list exits 0' -Ok ($null -ne $listResult -and $listResult.ExitCode -eq 0 -and -not $listResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $listResult.ExitCode, $listResult.TimedOut, $listResult.DurationMilliseconds)
+        Add-Check -Name 'LazerASIO.exe --list exits 0' -Ok ($null -ne $listResult -and $listResult.ExitCode -eq 0 -and -not $listResult.TimedOut) -Detail ("exit={0} timeout={1} duration_ms={2}" -f $listResult.ExitCode, $listResult.TimedOut, $listResult.DurationMilliseconds)
         if ($null -ne $listResult) {
             $emptyMessages=@(Get-ChildItem -LiteralPath (Join-Path $relocation 'locales') -Filter '*.lang' -File | ForEach-Object {
                 foreach($line in [IO.File]::ReadAllLines($_.FullName,[Text.Encoding]::UTF8)) {
@@ -940,16 +956,16 @@ if ($hasShowFlag -and $hasListFlag -and (Test-Path -LiteralPath $relocatedConfig
             })
             $hasDevices=$listResult.Stdout -match '(?i)DeviceID\s+\d+'
             $reportsEmpty=@($emptyMessages|Where-Object {$listResult.Stdout.Contains($_)}).Count -gt 0
-            Add-Check -Name 'config.exe --list reports devices or successful empty enumeration' -Ok ($hasDevices -or $reportsEmpty) -Detail $(if($hasDevices){'DeviceID line present'}else{'no-device message present='+$reportsEmpty})
+            Add-Check -Name 'LazerASIO.exe --list reports devices or successful empty enumeration' -Ok ($hasDevices -or $reportsEmpty) -Detail $(if($hasDevices){'DeviceID line present'}else{'no-device message present='+$reportsEmpty})
             $listForbidden = @('System_Init', 'FMOD_System_Init', 'FMOD System Initialize', '(?:\u6B63\u5728\u68C0\u67E5\u6240\u9009\u8BBE\u5907|\u914D\u7F6E\u5DF2\u4FDD\u5B58)')
             $listForbiddenHits = @($listForbidden | Where-Object { $listResult.Stdout -match $_ -or $listResult.Stderr -match $_ })
-            Add-Check -Name 'config.exe --list never initialises/opens device' -Ok ($listForbiddenHits.Count -eq 0) -Detail ($(if ($listForbiddenHits.Count) { $listForbiddenHits -join ', ' } else { 'no System_Init/device-check markers' }))
-            Add-Check -Name 'config.exe --list does not write config or flag' -Ok ($relocatedConfigHashBefore -ne '' -and (Get-Sha256IfExists -Path $relocatedConfig) -eq $relocatedConfigHashBefore -and -not (Test-Path -LiteralPath (Join-Path $emptyCwd 'config.ini')) -and -not (Test-Path -LiteralPath (Join-Path $emptyCwd '.asio-device-configured')) -and @(Compare-TreeManifest -Before $emptyManifestBefore -After (Get-TreeManifest -Root $emptyCwd)).Count -eq 0) -Detail 'empty cwd unchanged; config.ini unchanged'
+            Add-Check -Name 'LazerASIO.exe --list never initialises/opens device' -Ok ($listForbiddenHits.Count -eq 0) -Detail ($(if ($listForbiddenHits.Count) { $listForbiddenHits -join ', ' } else { 'no System_Init/device-check markers' }))
+            Add-Check -Name 'LazerASIO.exe --list does not write config or flag' -Ok ($relocatedConfigHashBefore -ne '' -and (Get-Sha256IfExists -Path $relocatedConfig) -eq $relocatedConfigHashBefore -and -not (Test-Path -LiteralPath (Join-Path $emptyCwd 'config.ini')) -and -not (Test-Path -LiteralPath (Join-Path $emptyCwd '.asio-device-configured')) -and @(Compare-TreeManifest -Before $emptyManifestBefore -After (Get-TreeManifest -Root $emptyCwd)).Count -eq 0) -Detail 'empty cwd unchanged; config.ini unchanged'
         }
     }
 }
 else {
-    Add-Check -Name 'config.exe flag gate before execution' -Ok $false -Detail 'refusing to run an executable without --show/--list; interactive config could open a sound device'
+    Add-Check -Name 'LazerASIO.exe flag gate before execution' -Ok $false -Detail 'refusing to run an executable without --show/--list; interactive config could open a sound device'
 }
 
 $relocatedManifestAfter = Get-TreeManifest -Root $relocation

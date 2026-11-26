@@ -11,8 +11,6 @@ try {
     if($LASTEXITCODE){throw 'Native build failed.'}
     & dotnet.exe build (Join-Path $repo 'managed\Asio.ManagedBridge.csproj') -c Release
     if($LASTEXITCODE){throw 'Managed build failed.'}
-    & cl.exe /nologo /utf-8 /std:c++17 /EHsc /O2 /MT /Brepro (Join-Path $repo 'tools\device\AsioDeviceCheck.cpp') "/Forelease\AsioDeviceCheck.obj" "/Ferelease\AsioDeviceCheck.exe" /link /LIBPATH:lib fmod_vc.lib
-    if($LASTEXITCODE){throw 'Device checker build failed.'}
     if(!$SkipTests){
         & (Join-Path $repo 'tools\qa\Test-Core.ps1')
         if($LASTEXITCODE){throw 'Core regression failed.'}

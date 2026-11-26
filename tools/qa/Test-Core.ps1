@@ -22,6 +22,7 @@ $cases=@(
  @{name='output-regression';source='OutputRegression.cpp';fmod=$true;hook=$false;arguments=@('--artifacts',$fixtureDirectory)},
  @{name='digital-output';source='DigitalOutputProbe.cpp';fmod=$true;hook=$false;arguments=@()},
  @{name='config-enumeration';source='ConfigEnumerationProbe.cpp';fmod=$false;hook=$false;arguments=@()},
+ @{name='watcher-probe';source='WatcherProbe.cpp';fmod=$false;hook=$false;arguments=@()},
  @{name='wake-latency-old';source='WakeLatencyProbe.cpp';fmod=$false;hook=$false;arguments=@('--old')},
  @{name='wake-latency-new';source='WakeLatencyProbe.cpp';fmod=$false;hook=$false;arguments=@('--new')}
 )
