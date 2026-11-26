@@ -54,90 +54,71 @@ Copy-Item -LiteralPath $package -Destination $caseRoot -Recurse
 $decoy=Join-Path $run 'unrelated working directory';$null=New-Item -ItemType Directory -Path $decoy
 [IO.File]::WriteAllText((Join-Path $decoy 'config.ini'),"[Config]`r`nBuffer Size = 256`r`nASIO Driver ID = 999`r`nSample Rate = 44100`r`nOutput Volume = 1`r`nDebug Log = 1`r`n",[Text.Encoding]::ASCII)
 $audioConfig=Join-Path $caseRoot 'config.ini';$audioHash=(Get-FileHash -LiteralPath $audioConfig).Hash
+$entry=Join-Path $caseRoot 'LazerASIO.exe'
 $codes=@('zh-CN','zh-TW','en','fr','es')
 try {
     Check (!(Test-Path -LiteralPath (Join-Path $caseRoot 'language.ini'))) 'clean package has no language preference'
+    Check (!(Test-Path -LiteralPath (Join-Path $caseRoot 'gui.ini'))) 'clean package has no window preferences'
     Check (!(Test-Path -LiteralPath (Join-Path $caseRoot '.asio-device-configured'))) 'clean package has no device marker'
     Check (!(Test-Path -LiteralPath (Join-Path $caseRoot 'logs'))) 'clean package has no logs'
-    $initial=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--language') $decoy "4`r`n" 'first-language-menu'
+    $initial=Invoke-TestProcess $entry @('--language') $decoy "4`r`n" 'first-language-menu'
     Check ($initial.exit -eq 0 -and $initial.stdout.Contains('Français') -and $initial.stdout.Contains('Español') -and $initial.stdout.Contains('繁體中文')) 'first language menu includes all languages and selects French'
     foreach($code in $codes) {
         $catalog=Read-Catalog (Join-Path $caseRoot ("locales\$code.lang"))
-        $select=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--language',$code) $decoy '' ($code+'-select')
+        $select=Invoke-TestProcess $entry @('--language',$code) $decoy '' ($code+'-select')
         Check ($select.exit -eq 0 -and $select.stdout.Contains($catalog['language.name'])) ($code+' saved language with native name')
         $preference=[IO.File]::ReadAllText((Join-Path $caseRoot 'language.ini'),$utf8)
         Check ($preference.Contains('Language = '+$code)) ($code+' saved code in separate language.ini')
-        $current=Invoke-TestProcess (Join-Path $caseRoot 'osu!asio_sound.exe') @('--current-language') $decoy '' ($code+'-current')
-        Check ($current.exit -eq 0 -and $current.stdout.Trim() -eq $code) ($code+' shared preference across executables')
-        $help=Invoke-TestProcess (Join-Path $caseRoot 'osu!asio_sound.exe') @('--help') $decoy '' ($code+'-help')
-        Check ($help.exit -eq 0 -and $help.stdout.Contains($catalog['launcher.usage'])) ($code+' localized launcher text')
-        $show=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--show') $decoy '' ($code+'-config')
+        $current=Invoke-TestProcess $entry @('--current-language') $decoy '' ($code+'-current')
+        Check ($current.exit -eq 0 -and $current.stdout.Trim() -eq $code) ($code+' preference is read back from language.ini')
+        $help=Invoke-TestProcess $entry @('--help') $decoy '' ($code+'-help')
+        Check ($help.exit -eq 0 -and $help.stdout.Contains($catalog['gui.usage'])) ($code+' localized command-line usage')
+        $show=Invoke-TestProcess $entry @('--show') $decoy '' ($code+'-config')
         Check ($show.exit -eq 0 -and $show.stdout.Contains('Buffer Size = 16') -and $show.stdout.Contains('Output Volume = 50') -and $show.stdout.Contains('Contract Mode = 1') -and !$show.stdout.Contains('999')) ($code+' config including Adaptive remains language/cwd independent')
-        $list=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--list') $decoy '' ($code+'-list')
+        $list=Invoke-TestProcess $entry @('--list') $decoy '' ($code+'-list')
         Check ($list.exit -eq 0 -and $list.stdout.Contains($catalog['config.devices'])) ($code+' localized device enumeration without opening device')
         $backend=Invoke-TestProcess (Join-Path $caseRoot 'asio_backend.exe') @() $decoy '' ($code+'-backend-guard')
         Check ($backend.exit -eq 2 -and $backend.stderr.Contains($catalog['backend.internal'])) ($code+' localized backend guard before device open')
-        $check=Invoke-TestProcess (Join-Path $caseRoot 'AsioDeviceCheck.exe') @('--list') $decoy '' ($code+'-device-list')
-        Check ($check.exit -eq 0 -and $check.stdout.Contains($catalog['device.list'])) ($code+' optional device tool shares language')
-        . (Join-Path $caseRoot 'managed\Localization.ps1')
-        Initialize-AsioLanguage $caseRoot
-        $rendered=Get-AsioText 'watcher.found' @(123,'F:\example {0}\osu!.exe')
-        Check ($rendered.Contains('123') -and $rendered.Contains('F:\example {0}\osu!.exe') -and $script:AsioLanguage -eq $code) ($code+' watcher placeholders preserve braces in values')
-        Check ((Get-AsioText 'watcher.behavior') -eq $catalog['watcher.behavior']) ($code+' watcher uses selected language')
-        # Isolate only singleton and target for the real public-EXE wait test.
-        $watcher=Join-Path $caseRoot 'managed\Start-Standalone.ps1'
-        $original=[IO.File]::ReadAllText($watcher,$utf8)
-        $isolated=$original.Replace("[string]`$ProcessName = 'osu!'","[string]`$ProcessName = 'ASIO-I18N-NoSuchGame-81973'").Replace('[int]$MaximumWaitSeconds = 0','[int]$MaximumWaitSeconds = 1').Replace('Local\OsuAsioStandaloneWatcher','Local\AsioI18nTest_20261115')
-        [IO.File]::WriteAllText($watcher,$isolated,[Text.UTF8Encoding]::new($true))
+        $unconfigured=Invoke-TestProcess $entry @('--watch','--process','ASIO-I18N-NoSuchGame-81973','--max-wait','1','--instance','i18n') $decoy '' ($code+'-watch-unconfigured')
+        Check ($unconfigured.exit -eq 1 -and $unconfigured.stderr.Contains($catalog['gui.first_use_cli'])) ($code+' watcher refuses to attach before device setup')
+        # Isolated wait: unique watcher name, nonexistent target and a 1 s deadline.
         [IO.File]::WriteAllText((Join-Path $caseRoot '.asio-device-configured'),'test-only',[Text.Encoding]::ASCII)
         try {
-            $entry=Invoke-TestProcess (Join-Path $caseRoot 'osu!asio_sound.exe') @() $decoy "`r`n" ($code+'-public-entry')
-            Check ($entry.exit -eq 1 -and $entry.stdout.Contains('ASIO-I18N-NoSuchGame-81973.exe') -and $entry.stdout.Contains($catalog['watcher.behavior']) -and $entry.stderr.Contains($catalog['watcher.timeout']) -and !$entry.stderr.Contains('ParserError')) ($code+' public EXE reaches localized wait and expected timeout')
+            $watch=Invoke-TestProcess $entry @('--watch','--process','ASIO-I18N-NoSuchGame-81973','--max-wait','1','--instance','i18n') $decoy '' ($code+'-watch')
+            Check ($watch.exit -eq 1 -and $watch.stdout.Contains('ASIO-I18N-NoSuchGame-81973.exe') -and $watch.stdout.Contains($catalog['watcher.behavior']) -and $watch.stderr.Contains($catalog['watcher.timeout'])) ($code+' watcher reaches localized wait and expected timeout')
         } finally {
-            [IO.File]::WriteAllText($watcher,$original,[Text.UTF8Encoding]::new($true))
             $marker=Join-Path $caseRoot '.asio-device-configured';if(!(Get-Item -LiteralPath $marker).FullName.StartsWith($run+'\')){throw 'Unsafe test marker removal'};Remove-Item -LiteralPath $marker
         }
         Check ((Get-FileHash -LiteralPath $audioConfig).Hash -eq $audioHash) ($code+' language changes do not alter audio config')
     }
     $oldLanguage=[IO.File]::ReadAllText((Join-Path $caseRoot 'language.ini'),$utf8)
-    $invalid=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--language','invalid-code') $decoy '' 'invalid-language'
+    $invalid=Invoke-TestProcess $entry @('--language','invalid-code') $decoy '' 'invalid-language'
     Check ($invalid.exit -eq 2 -and [IO.File]::ReadAllText((Join-Path $caseRoot 'language.ini'),$utf8) -eq $oldLanguage) 'invalid language rejected without replacing preference'
     [IO.File]::WriteAllText((Join-Path $caseRoot 'language.ini'),"[Interface]`r`nLanguage = invalid`r`n",[Text.Encoding]::ASCII)
-    $fallback=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--current-language') $decoy '' 'invalid-preference-fallback'
+    $fallback=Invoke-TestProcess $entry @('--current-language') $decoy '' 'invalid-preference-fallback'
     Check ($fallback.exit -eq 0 -and $fallback.stdout.Trim() -eq 'en') 'invalid preference falls back to English'
-    # Verify readiness recognition directly, using arbitrary display text. The
-    # marker must work in every language and must not infer success from words.
-    $watcherTreeTokens=$null;$watcherTreeErrors=$null
-    $tree=[Management.Automation.Language.Parser]::ParseFile((Join-Path $caseRoot 'managed\Start-Standalone.ps1'),[ref]$watcherTreeTokens,[ref]$watcherTreeErrors)
-    $readStatus=$tree.FindAll({param($node)$node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Read-AsioAttachStatus'},$true)[0]
-    . ([scriptblock]::Create($readStatus.Extent.Text))
-    foreach($code in $codes){
-        $catalog=Read-Catalog (Join-Path $caseRoot ("locales\$code.lang"))
-        $reader=[IO.StringReader]::new(('[ASIO_READY] '+$catalog['backend.ready']+"`n"))
-        $status=@{Reader=$reader;Pending='';Ready=$false}
-        $null=Read-AsioAttachStatus $status
-        Check ([bool]$status.Ready) ($code+' fixed readiness marker ignores translated wording')
-        $reader.Dispose()
-    }
-    $reader=[IO.StringReader]::new("looks ready but no machine marker`n")
-    $status=@{Reader=$reader;Pending='';Ready=$false};$null=Read-AsioAttachStatus $status
-    Check (!$status.Ready) 'display text alone never marks attachment ready';$reader.Dispose()
-    $eof=Invoke-TestProcess (Join-Path $caseRoot 'config.exe') @('--language') $decoy '' 'language-menu-eof'
+    $eof=Invoke-TestProcess $entry @('--language') $decoy '' 'language-menu-eof'
     Check ($eof.exit -eq 2) 'language menu EOF cancels without hanging'
-    # Review regression: catalog absence, exclusive read lock and invalid UTF-8
-    # must retain readable English and must not abort watcher initialization.
+    $unknown=Invoke-TestProcess $entry @('--no-such-flag') $decoy '' 'unknown-flag'
+    Check ($unknown.exit -eq 2 -and $unknown.stdout.Contains('LazerASIO.exe')) 'unknown flag prints usage instead of opening the window'
+    # Catalog absence, an exclusive read lock and invalid UTF-8 must keep
+    # readable English rather than abort startup.
     $broken=Join-Path $run 'catalog-failure-fixture';$null=New-Item -ItemType Directory -Path $broken,(Join-Path $broken 'locales')
-    Initialize-AsioLanguage $broken
-    Check ((Get-AsioText 'watcher.behavior').StartsWith('The tool does not start')) 'missing catalogs use built-in English'
-    $lockedFile=Join-Path $broken 'locales\en.lang'
-    [IO.File]::WriteAllText($lockedFile,'watcher.behavior=WRONG',$utf8)
+    Copy-Item -LiteralPath $entry -Destination (Join-Path $broken 'LazerASIO.exe')
+    Copy-Item -LiteralPath (Join-Path $caseRoot 'fmod.dll') -Destination (Join-Path $broken 'fmod.dll')
+    [IO.File]::WriteAllText((Join-Path $broken 'language.ini'),"[Interface]`r`nLanguage = fr`r`n",[Text.Encoding]::ASCII)
+    $english=(Read-Catalog (Join-Path $caseRoot 'locales\en.lang'))['gui.usage']
+    $missing=Invoke-TestProcess (Join-Path $broken 'LazerASIO.exe') @('--help') $decoy '' 'catalog-missing'
+    Check ($missing.exit -eq 0 -and $missing.stdout.Contains($english)) 'missing catalogs use built-in English'
+    $lockedFile=Join-Path $broken 'locales\fr.lang'
+    [IO.File]::WriteAllText($lockedFile,'gui.usage=WRONG',$utf8)
     $stream=[IO.File]::Open($lockedFile,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::None)
-    try{Initialize-AsioLanguage $broken;Check ((Get-AsioText 'watcher.behavior').StartsWith('The tool does not start')) 'exclusive catalog lock does not abort startup'}finally{$stream.Dispose()}
+    try{$locked=Invoke-TestProcess (Join-Path $broken 'LazerASIO.exe') @('--help') $decoy '' 'catalog-locked';Check ($locked.exit -eq 0 -and $locked.stdout.Contains($english)) 'exclusive catalog lock does not abort startup'}finally{$stream.Dispose()}
     [IO.File]::WriteAllBytes($lockedFile,[byte[]]@(255,254,0,1))
-    Initialize-AsioLanguage $broken
-    Check ((Get-AsioText 'watcher.behavior').StartsWith('The tool does not start')) 'invalid UTF8 catalog falls back to English'
-    foreach($entry in $sourceManifest){Check ((Get-FileHash -LiteralPath $entry.path).Hash -eq $entry.hash) ('source untouched: '+[IO.Path]::GetFileName($entry.path))}
-    $result=[ordered]@{pass=$true;checks=$checks.Count;failures=0;languages=$codes;hardware_device_opened=$false;game_started=$false;real_audio_listening=$false;launcher_isolation='Temporary copy only: unique mutex, nonexistent target, 1s deadline';cases=$checks;run=$run}
+    $invalidUtf8=Invoke-TestProcess (Join-Path $broken 'LazerASIO.exe') @('--help') $decoy '' 'catalog-invalid-utf8'
+    Check ($invalidUtf8.exit -eq 0 -and $invalidUtf8.stdout.Contains($english)) 'invalid UTF8 catalog falls back to English'
+    foreach($entryFile in $sourceManifest){Check ((Get-FileHash -LiteralPath $entryFile.path).Hash -eq $entryFile.hash) ('source untouched: '+[IO.Path]::GetFileName($entryFile.path))}
+    $result=[ordered]@{pass=$true;checks=$checks.Count;failures=0;languages=$codes;hardware_device_opened=$false;game_started=$false;real_audio_listening=$false;window_opened=$false;watcher_isolation='Temporary copy only: unique watcher name, nonexistent target, 1s deadline';readiness_markers='tests/WatcherProbe.cpp (all five catalogs)';cases=$checks;run=$run}
     [IO.File]::WriteAllText((Join-Path $run 'RESULT.json'),($result|ConvertTo-Json -Depth 8),$utf8)
     Write-Output ('PASS multilingual checks='+$checks.Count+'; result='+$run+'\RESULT.json')
 } catch {

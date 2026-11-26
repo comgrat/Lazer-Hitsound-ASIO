@@ -15,7 +15,7 @@ From the repository root:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\Build.ps1
 ```
 
-This builds the native configuration tool, launcher, backend and hook; the .NET bridge; and the optional stereo device checker. It also runs eleven native/core invocations (nine regression programs and two modes of the wake benchmark), the managed tiered-contract self-test and a graph cache/scratch probe (source changes, nesting, re-entry, parallel calls, weak-reference collection and cycles). Each test process has a 120-second deadline and saved stdout/stderr; pass `-TestTimeoutSeconds` to `Test-Core.ps1` to adjust it. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
+This builds the `LazerASIO.exe` window (setup wizard, settings, live volume, watcher and the `--show`/`--list`/`--watch` checks), the backend and hook, and the .NET bridge. It also runs twelve native/core invocations (ten regression programs and two modes of the wake benchmark), the managed tiered-contract self-test and a graph cache/scratch probe (source changes, nesting, re-entry, parallel calls, weak-reference collection and cycles). Each test process has a 120-second deadline and saved stdout/stderr; pass `-TestTimeoutSeconds` to `Test-Core.ps1` to adjust it. Core tests use mock/native silent output and do not launch the game or open ASIO hardware. Use `-SkipTests` to build only.
 
 Export an untouched portable folder and ZIP:
 
@@ -34,7 +34,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\qa\Test-SharePackage
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\qa\Test-Multilingual.ps1 -PackageDirectory .\artifacts\LazerASIO-Tachyon1110
 ```
 
-`Test-SharePackage` requires `dumpbin.exe` from the developer shell. Device-list checks enumerate drivers but do not initialize an ASIO device. Language/launcher checks use an isolated temporary copy, a unique watcher mutex, a nonexistent process name and an expected short timeout. They do not attach to a real client.
+`Test-SharePackage` requires `dumpbin.exe` from the developer shell. Device-list checks enumerate drivers but do not initialize an ASIO device. Language/watcher checks run `LazerASIO.exe` command-line modes in an isolated temporary copy with a unique watcher name, a nonexistent process name and an expected short timeout. They never open the window or attach to a real client.
 
 If editing translations, keep key names and `{0}` placeholders unchanged, then run:
 
@@ -57,6 +57,12 @@ dotnet run --project .\tests\LiveGraphResearch -c Release -- C:\path\to\compatib
 ```
 
 These fixtures load the game's audio assemblies and create real volume graphs without starting the game. They cannot establish audible correctness or account safety.
+
+## Window and live volume
+
+`gui/lazerasio.cpp` is a single native Win32 window drawn with Direct2D/DirectWrite (`gui/ui.h`, osu!lazer pink overlay palette). `gui/watcher.h` replaces the former `managed/Start-Standalone.ps1`: it waits for a client whose folder contains the lazer runtime files and managed `osu.Game.dll`/`osu.Framework.dll`, starts `asio_backend.exe --live --attach-pid <pid> --control-stdin` with stdout/stderr in `logsttach-*.log`, and recognizes only the fixed `[ASIO_READY]`, `[Verified Contract]` and `[Compat/Adaptive]` markers.
+
+`--control-stdin` accepts `volume <0-100>` lines and applies them on the worker's next pass, so the slider is live while dragging; the window writes `config.ini` after the drag ends. The file watcher now applies only a *changed* stable snapshot, so an unchanged file cannot revert a newer control value. EOF on the pipe (window closed or crashed) requests the backend's orderly shutdown and native fallback. `OutputRegression` covers parsing, split writes, the no-revert rule, later file saves and EOF shutdown; `WatcherProbe` covers markers in all five catalogs, client recognition, watcher exclusivity and timeout.
 
 ## Maintain audio compatibility
 
@@ -81,6 +87,6 @@ Only the backend owns the 1 ms timer request, paired by RAII on return. The hook
 
 ## Round2 build entry and SDK choice
 
-Build.ps1 invokes Compile.bat by its full, quoted path, and Test-ASIO-Device.cmd uses %~dp0AsioDeviceCheck.exe. This supports a caller that sets NoDefaultCurrentDirectoryInExePath=1 and has an unrelated working directory.
+Build.ps1 invokes Compile.bat by its full, quoted path, and LazerASIO.exe starts asio_backend.exe by its absolute path beside itself. This supports a caller that sets NoDefaultCurrentDirectoryInExePath=1 and has an unrelated working directory.
 
 The SDK rollForward setting stays disabled for round2. Release provenance currently relies on the pinned .NET 10.0.404 SDK also selected in CI; accepting another SDK without recording that choice would make compiler attribution less precise. Contributors should install the pinned SDK, and release builds should use CI or that exact SDK. The target framework remains net10.0.

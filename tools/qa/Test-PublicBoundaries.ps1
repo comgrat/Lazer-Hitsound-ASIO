@@ -16,7 +16,7 @@ $caseRoot=Join-Path $run ('renamed '+$unicode+' with spaces')
 $decoy=Join-Path $run 'unrelated cwd'
 $null=New-Item -ItemType Directory -Path $caseRoot,$decoy,(Join-Path $caseRoot 'locales')
 Copy-Item -LiteralPath $probe -Destination (Join-Path $caseRoot 'backend-path.exe')
-foreach($name in @('config.exe','fmod.dll')){Copy-Item -LiteralPath (Join-Path "$repo\release" $name) -Destination $caseRoot}
+foreach($name in @('LazerASIO.exe','fmod.dll')){Copy-Item -LiteralPath (Join-Path "$repo\release" $name) -Destination $caseRoot}
 Copy-Item -Path "$repo\locales\*.lang" -Destination (Join-Path $caseRoot 'locales')
 $config=Join-Path $caseRoot 'config.ini'
 $valid="[Config]`r`nBuffer Size = 16`r`nASIO Driver ID = 0`r`nSample Rate = 48000`r`nOutput Volume = 37`r`nDebug Log = 0`r`nContract Mode = 0`r`n"
@@ -24,7 +24,7 @@ $valid="[Config]`r`nBuffer Size = 16`r`nASIO Driver ID = 0`r`nSample Rate = 4800
 [IO.File]::WriteAllText((Join-Path $decoy 'config.ini'),$valid.Replace('37','1'),[Text.Encoding]::ASCII)
 Invoke-BoundedProcess -FilePath (Join-Path $caseRoot 'backend-path.exe') -WorkingDirectory $decoy -LogPrefix (Join-Path $run 'backend-unicode')
 $showLog=Join-Path $run 'config-unicode'
-Invoke-BoundedProcess -FilePath (Join-Path $caseRoot 'config.exe') -ArgumentList @('--show') -WorkingDirectory $decoy -LogPrefix $showLog
+Invoke-BoundedProcess -FilePath (Join-Path $caseRoot 'LazerASIO.exe') -ArgumentList @('--show') -WorkingDirectory $decoy -LogPrefix $showLog
 if(![IO.File]::ReadAllText($showLog+'.stdout.log').Contains('Output Volume = 37')){throw 'Config read decoy cwd.'}
 $cases=@(
  @{name='encoding';text="["+[char]0+"Config]";key='settings.encoding';arg=''},
@@ -42,7 +42,7 @@ foreach($code in @('zh-CN','zh-TW','en','fr','es')){
   [IO.File]::WriteAllText($config,$case.text,[Text.UTF8Encoding]::new($false))
   $before=(Get-FileHash -LiteralPath $config).Hash
   $log=Join-Path $run ($code+'-'+$case.name)
-  Invoke-BoundedProcess -FilePath (Join-Path $caseRoot 'config.exe') -ArgumentList @('--show') -WorkingDirectory $decoy -LogPrefix $log
+  Invoke-BoundedProcess -FilePath (Join-Path $caseRoot 'LazerASIO.exe') -ArgumentList @('--show') -WorkingDirectory $decoy -LogPrefix $log
   $actual=[IO.File]::ReadAllText($log+'.stderr.log',[Text.Encoding]::UTF8)
   $reason=$catalog[$case.key].Replace('{0}',$case.arg)
   if(!$actual.Contains($reason)){throw ('Missing localized cause: '+$code+' '+$case.name)}

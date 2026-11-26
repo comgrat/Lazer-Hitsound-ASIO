@@ -84,6 +84,7 @@ static int debugLogEnabled = 0;
 static bool detailedTraceEnabled = false;
 static std::wstring configPath;
 static asio::Settings startupSettings;
+static std::string startupSnapshot;
 static std::atomic<int> requestedOutputVolume{100};
 static std::atomic<int> requestedDebugLog{0};
 static std::atomic<bool> settingsWatcherRunning{false};
@@ -92,7 +93,7 @@ static asio::AsyncTextLog* playbackLog=nullptr;
 
 static DWORD WINAPI watchSettings(LPVOID)
 {
-    std::string lastError,previousSnapshot;
+    std::string lastError,previousSnapshot,appliedSnapshot=startupSnapshot;
     bool haveSnapshot=false;
     while (settingsWatcherRunning) {
         asio::Settings next;
@@ -100,10 +101,12 @@ static DWORD WINAPI watchSettings(LPVOID)
         if (asio::loadSettings(configPath, next, error,&snapshot)) {
             lastError.clear();
             // Two identical closed-writer snapshots avoid applying transient
-            // save contents. A valid file left stable is treated as a save.
-            if(haveSnapshot && previousSnapshot==snapshot) {
+            // save contents. Only a changed stable file counts as a save, so an
+            // unchanged file cannot undo a newer value from the control channel.
+            if(haveSnapshot && previousSnapshot==snapshot && snapshot!=appliedSnapshot) {
                 requestedOutputVolume.store(next.volume, std::memory_order_release);
                 requestedDebugLog.store(next.debug, std::memory_order_release);
+                appliedSnapshot=snapshot;
             }
             previousSnapshot=std::move(snapshot);haveSnapshot=true;
         } else {
@@ -115,6 +118,41 @@ static DWORD WINAPI watchSettings(LPVOID)
         }
         if (WaitForSingleObject(settingsStopEvent, 250) != WAIT_TIMEOUT) break;
     }
+    return 0;
+}
+
+// Optional control channel from the LazerASIO window: "volume <0-100>" lines on
+// stdin apply without a file round trip. EOF or a broken pipe means the owning
+// window has gone, so the backend shuts down as if its own window were closed.
+static std::atomic<bool> controlStopping{false};
+static bool parseControlLine(const std::string &line, int &volume)
+{
+    const std::string prefix="volume ";
+    if(line.compare(0,prefix.size(),prefix)!=0) return false;
+    std::string value=asio::trimSetting(line.substr(prefix.size()));
+    errno=0;char* end=nullptr;long number=strtol(value.c_str(),&end,10);
+    if(errno||end==value.c_str()||*end||number<0||number>100) return false;
+    volume=int(number);
+    return true;
+}
+static DWORD WINAPI readControl(LPVOID)
+{
+    HANDLE input=GetStdHandle(STD_INPUT_HANDLE);
+    std::string pending;char buffer[256];
+    for(;;) {
+        DWORD read=0;
+        if(!input||input==INVALID_HANDLE_VALUE||!ReadFile(input,buffer,sizeof(buffer),&read,nullptr)||!read) break;
+        pending.append(buffer,read);
+        size_t newline;
+        while((newline=pending.find('\n'))!=std::string::npos) {
+            int volume=0;
+            if(parseControlLine(asio::trimSetting(pending.substr(0,newline)),volume))
+                requestedOutputVolume.store(volume,std::memory_order_release);
+            pending.erase(0,newline+1);
+        }
+        if(pending.size()>1024) pending.clear();
+    }
+    if(!controlStopping) PostThreadMessage(mainThreadId,WM_QUIT,0,0);
     return 0;
 }
 
@@ -204,7 +242,7 @@ static bool init()
 {
     configPath=asio::executableSibling(L"config.ini");
     std::string error;
-    if(configPath.empty()||!asio::loadSettings(configPath,startupSettings,error)) {
+    if(configPath.empty()||!asio::loadSettings(configPath,startupSettings,error,&startupSnapshot)) {
         fprintf(stderr,"%s\n",ui::text("backend.config_failed",{error,asio::utf8Path(configPath)}).c_str());
         return false;
     }
@@ -905,10 +943,11 @@ int main(int argc, char *argv[])
     SetConsoleOutputCP(CP_UTF8);
     asio::writeRedirectedUtf8Preamble(stdout);
     ui::initialize();
-    bool liveAttach = false;
+    bool liveAttach = false, controlStdin = false;
     DWORD requestedPid = 0;
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--live")) liveAttach = true;
+        else if (!strcmp(argv[i], "--control-stdin")) controlStdin = true;
         else if (!strcmp(argv[i], "--attach-pid") && i + 1 < argc) {
             char* end = nullptr;
             unsigned long value = strtoul(argv[++i], &end, 10);
@@ -1110,6 +1149,9 @@ int main(int argc, char *argv[])
     }
     SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
     SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
+    // Started after the worker so an already-closed owner still gets an orderly shutdown.
+    HANDLE controlThread=controlStdin?CreateThread(nullptr,0,readControl,nullptr,0,nullptr):nullptr;
+    if(controlStdin&&!controlThread) PostThreadMessage(mainThreadId,WM_QUIT,0,0);
 
     MSG msg;
     bool running = true;
@@ -1126,6 +1168,13 @@ int main(int argc, char *argv[])
     }
 
     Work = false;
+    if(controlThread) {
+        controlStopping=true;
+        CancelSynchronousIo(controlThread);
+        // A pipe read that cannot be cancelled must not hold the device open.
+        WaitForSingleObject(controlThread,1000);
+        CloseHandle(controlThread);
+    }
     settingsWatcherRunning=false;
     SetEvent(settingsStopEvent);
     WaitForSingleObject(thread, INFINITE);

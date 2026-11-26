@@ -18,8 +18,8 @@ try {
     $rejected=$false
     try{& $exporter -OutputDirectory (Join-Path $run 'missing-input') -SourceCommit ('a'*40)}catch{$rejected=$_.Exception.Message.Contains('Missing package input')}
     if(!$rejected -or (Test-Path -LiteralPath (Join-Path $run 'missing-input'))){throw 'Missing input left a partial export.'}
-    $inputs=@('AUTHORS.md','THIRD_PARTY_NOTICES.md','LICENSE','Test-ASIO-Device.cmd','docs\USAGE.md','licenses\MinHook.txt','licenses\Harmony.txt','licenses\FMOD.txt','distribution\Start-ASIO.cmd','distribution\Change-Language.cmd','managed\Start-Standalone.ps1','managed\Localization.ps1')
-    $inputs+=@('config.exe','osu!asio_sound.exe','osu!asio_sound (select osu exename).exe','asio_backend.exe','osu!asio_sound.dll','fmod.dll','AsioDeviceCheck.exe')|ForEach-Object{'release\'+$_}
+    $inputs=@('AUTHORS.md','THIRD_PARTY_NOTICES.md','LICENSE','docs\USAGE.md','licenses\MinHook.txt','licenses\Harmony.txt','licenses\FMOD.txt')
+    $inputs+=@('LazerASIO.exe','asio_backend.exe','osu!asio_sound.dll','fmod.dll')|ForEach-Object{'release\'+$_}
     $inputs+=@('Asio.ManagedBridge.dll','Asio.ManagedBridge.deps.json','0Harmony.dll')|ForEach-Object{'managed\bin\Release\net10.0\'+$_}
     $inputs+=@('zh-CN','zh-TW','en','fr','es')|ForEach-Object{'locales\'+$_+'.lang'}
     foreach($relative in $inputs){$destination=Join-Path $archive $relative;$null=New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force;Copy-Item -LiteralPath (Join-Path $repo $relative) -Destination $destination}
