@@ -26,7 +26,7 @@ namespace i18n = asio::i18n;
 using namespace lazer;
 using namespace lazer::ui;
 
-static const char *kVersion = "1.3.0";
+static const char *kVersion = "1.3.1";
 static const UINT WM_APP_WATCH = WM_APP + 1, WM_APP_DEVICE = WM_APP + 2, WM_APP_TRAY = WM_APP + 3;
 static const UINT_PTR TIMER_ANIM = 1, TIMER_TICK = 2;
 static const wchar_t *kWindowClass = L"LazerASIOWindow";

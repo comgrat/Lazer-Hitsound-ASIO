@@ -53,13 +53,12 @@ struct ChannelData
     float pan;
     float frequency;
     bool looping;
-    bool playing;
     enum class Phase { Fresh, Playing, Paused, Finished } phase = Phase::Fresh;
     HCHANNEL handle = 0;
     unsigned long long voiceId = 0;
 
     ChannelData()
-        : sample(0), channel(nullptr), volume(1.0f), pan(0.0f), frequency(0.0f), looping(false), playing(false)
+        : sample(0), channel(nullptr), volume(1.0f), pan(0.0f), frequency(0.0f), looping(false)
     {
     }
 };
@@ -177,11 +176,13 @@ struct PlaybackStats
     unsigned long long playRequests = 0;
     unsigned long long starts = 0;
     unsigned long long missingSamples = 0;
+    unsigned long long lateOneShots = 0;
     unsigned long long staleRejected = 0;
     unsigned long long finished = 0;
 };
 static PlaybackStats playbackStats; // Accessed only by the event worker.
 static unsigned long long nextVoiceId = 0;
+static constexpr double maxOneShotQueueMs = 50;
 
 static void traceVoice(const char *action, const ChannelData &data)
 {
@@ -196,9 +197,10 @@ static void traceVoice(const char *action, const ChannelData &data)
 
 static void reportPlaybackStats()
 {
-    if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu finished=%llu missingSample=%llu staleRejected=%llu\n",
+    if(playbackLog) playbackLog->write("[ASIO status] ready=%ld samples=%llu PLAY=%llu started=%llu finished=%llu missingSample=%llu staleRejected=%llu lateOneShots=%llu\n",
            MyPool->backendReady, playbackStats.samplesLoaded, playbackStats.playRequests,
-           playbackStats.starts, playbackStats.finished, playbackStats.missingSamples, playbackStats.staleRejected);
+           playbackStats.starts, playbackStats.finished, playbackStats.missingSamples, playbackStats.staleRejected,
+           playbackStats.lateOneShots);
     if(MyPool && debugLogEnabled && playbackLog) {
         if(MyPool->recoveryState!=RECOVERY_RECORDING)
             playbackLog->write("[ASIO recovery status] cause=%s stale=%s age_ms=%lu trigger_epoch=%ld trigger_tick=%lu\n",
@@ -288,7 +290,6 @@ static void finishChannel(ChannelData &data, FMOD_RESULT reason)
 {
     if (data.phase == ChannelData::Phase::Finished) return;
     data.channel = nullptr;
-    data.playing = false;
     data.phase = ChannelData::Phase::Finished;
     ++playbackStats.finished;
     traceVoice("finished", data);
@@ -479,7 +480,6 @@ static void ensurePlaying(ChannelData &channelData, SampleData &sampleData)
         return;
     }
 
-    channelData.playing = true;
     channelData.phase = ChannelData::Phase::Playing;
     traceVoice("unpause",channelData);
     ++playbackStats.starts;
@@ -505,10 +505,8 @@ static void ensurePaused(ChannelData &channelData)
 {
     if (channelData.phase == ChannelData::Phase::Finished || channelData.phase == ChannelData::Phase::Paused)
         return;
-    if (!channelData.channel && channelData.phase == ChannelData::Phase::Fresh) {
-        channelData.playing = false; // Paused-before-first-PLAY is still fresh.
-        return;
-    }
+    if (!channelData.channel && channelData.phase == ChannelData::Phase::Fresh)
+        return; // Paused-before-first-PLAY is still fresh.
     if (channelData.channel != nullptr)
     {
         if (!refreshChannelLifetime(channelData)) return;
@@ -523,7 +521,6 @@ static void ensurePaused(ChannelData &channelData)
             else { backendFailed(result); return; }
         }
     }
-    channelData.playing = false;
     channelData.phase = channelData.channel ? ChannelData::Phase::Paused : ChannelData::Phase::Finished;
     traceVoice(channelData.channel ? "pause" : "finished",channelData);
 }
@@ -662,9 +659,13 @@ static DWORD WINAPI mainloop(LPVOID startupContext)
             if(phase==RECOVERY_REPLAYING && event.type!=EVENT_SAMPLE_LOADED && event.type!=EVENT_SAMPLE_FREED) {
                 ++playbackStats.staleRejected;continue;
             }
+            double queuedMs = 0;
             if (event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING &&
-                MyPool->diagnosticsEnabled && event.data.channelState.time > 0)
-                queueLatency.add(asio::qpcMilliseconds() - event.data.channelState.time);
+                event.data.channelState.time > 0)
+            {
+                queuedMs = asio::qpcMilliseconds() - event.data.channelState.time;
+                if (MyPool->diagnosticsEnabled) queueLatency.add(queuedMs);
+            }
 
             if (event.type >= EVENT_CHANNEL_CREATED && event.type <= EVENT_CHANNEL_REMOVED) {
                 HCHANNEL handle = event.type == EVENT_CHANNEL_CREATED ? event.data.channelCreated.channel : event.data.channelUpdated.channel;
@@ -706,23 +707,23 @@ static DWORD WINAPI mainloop(LPVOID startupContext)
             switch (event.type)
             {
             case EVENT_SAMPLE_LOADED:
-                if (loadSampleData(event.data.sampleLoaded, samples))
+            {
+                const auto &sample = event.data.sampleLoaded;
+                if (loadSampleData(sample, samples))
                 {
                     ++playbackStats.samplesLoaded;
-                    debugPrintf("[FMOD] Loaded sample %lu (%u bytes)\n", (unsigned long)event.data.sampleLoaded.sample, event.data.sampleLoaded.dataLength);
-                    for (auto &entry : channels)
-                    {
-                        if (entry.second.sample != event.data.sampleLoaded.sample)
-                            continue;
-
-                        if (entry.second.playing)
-                            ensurePlaying(entry.second, samples[event.data.sampleLoaded.sample]);
-                        else if (entry.second.channel != nullptr)
-                            ensurePaused(entry.second);
-                    }
+                    debugPrintf("[FMOD] Loaded sample %lu (%u bytes)\n", sample.sample, sample.dataLength);
                 }
-                else if(phase==RECOVERY_REPLAYING) backendFailed(FMOD_ERR_INTERNAL);
+                else
+                {
+                    auto *ack = findSampleAck(sample.sample);
+                    if (ack && DWORD(ack->requestedGeneration) == sample.generation)
+                        InterlockedExchange(&ack->failedGeneration, LONG(sample.generation));
+                    debugPrintf("[FMOD] Sample load rejected: sample=%lu generation=%lu\n", sample.sample, sample.generation);
+                    if (phase == RECOVERY_REPLAYING) backendFailed(FMOD_ERR_INTERNAL);
+                }
                 break;
+            }
 
             case EVENT_SAMPLE_FREED:
                 for(const auto &entry:channels)
@@ -769,38 +770,42 @@ static DWORD WINAPI mainloop(LPVOID startupContext)
 
             case EVENT_CHANNEL_STATE:
             {
-                if (event.data.channelState.state == CHANNEL_STATE_PLAYING)
-                    ++playbackStats.playRequests;
-                auto channelIt = channels.find(event.data.channelState.channel);
-                if (channelIt == channels.end())
+                const auto &state = event.data.channelState;
+                const bool playing = state.state == CHANNEL_STATE_PLAYING;
+                if (playing) ++playbackStats.playRequests;
+                auto channelIt = channels.find(state.channel);
+                if (channelIt == channels.end()) break;
+
+                auto &data = channelIt->second;
+                data.volume = state.volume;
+                data.pan = state.pan;
+                data.frequency = state.frequency;
+                data.looping = state.looping != 0;
+                tracePrintf("[FMOD] Channel state: channel=%lu state=%u\n", state.channel, state.state);
+                if (!playing)
                 {
-                    debugPrintf("[FMOD] Channel state ignored, missing channel %lu\n", (unsigned long)event.data.channelState.channel);
+                    ensurePaused(data);
                     break;
                 }
 
-                channelIt->second.playing = event.data.channelState.state == CHANNEL_STATE_PLAYING;
-                channelIt->second.volume = event.data.channelState.volume;
-                channelIt->second.pan = event.data.channelState.pan;
-                channelIt->second.frequency = event.data.channelState.frequency;
-                channelIt->second.looping = event.data.channelState.looping != 0;
-
-                auto sampleIt = samples.find(channelIt->second.sample);
-                if (sampleIt == samples.end())
+                auto sampleIt = samples.find(state.sample);
+                const bool sampleMissing = sampleIt == samples.end() || sampleIt->second.generation != state.sampleGeneration;
+                const bool lateOneShot = !data.looping && !data.channel && queuedMs >= maxOneShotQueueMs;
+                if (sampleMissing || lateOneShot)
                 {
-                    if (channelIt->second.playing) ++playbackStats.missingSamples;
-                    debugPrintf("[FMOD] Channel state deferred, missing sample %lu\n", (unsigned long)channelIt->second.sample);
+                    if (sampleMissing) ++playbackStats.missingSamples;
+                    if (lateOneShot) ++playbackStats.lateOneShots;
+                    debugPrintf("[FMOD] PLAY rejected: channel=%lu sample=%lu generation=%lu missingSample=%d queueMs=%.3f\n",
+                        state.channel, state.sample, event.generation, sampleMissing, queuedMs);
+                    // LOAD was ordered before PLAY. A later load or duplicate
+                    // PLAY must never resurrect this hit.
+                    generations.retire(state.channel, event.generation);
+                    removeChannel(state.channel, channels);
+                    if (!publishChannelFailure(MyPool, state.channel, event.generation)) backendFailed(FMOD_ERR_INTERNAL);
                     break;
                 }
 
-                tracePrintf("[FMOD] Channel state: channel=%lu state=%u\n",
-                            (unsigned long)event.data.channelState.channel,
-                            event.data.channelState.state);
-
-                if (channelIt->second.playing)
-                    ensurePlaying(channelIt->second, sampleIt->second);
-                else
-                    ensurePaused(channelIt->second);
-
+                ensurePlaying(data, sampleIt->second);
                 break;
             }
 

@@ -174,6 +174,8 @@ static Event state(HCHANNEL handle, DWORD generation, HSAMPLE sample, bool play,
     Event event = {}; event.type = EVENT_CHANNEL_STATE; event.generation = generation;
     auto &p = event.data.channelState; p.channel = handle; p.sample = sample;
     p.state = play ? CHANNEL_STATE_PLAYING : CHANNEL_STATE_PAUSED; p.volume = 0.25f; p.looping = loop ? 1 : 0;
+    p.sampleGeneration = DWORD(MyPool->sampleAcks[sample % SAMPLE_ACK_COUNT].requestedGeneration);
+    if (play && !loop) p.time = asio::qpcMilliseconds();
     return event;
 }
 static Event created(HCHANNEL handle, DWORD generation, HSAMPLE sample) {
@@ -294,7 +296,7 @@ static void naturallyFinishedHelpers() {
         auto result = FMOD_Channel_IsPlaying(old, &active); return result == FMOD_ERR_INVALID_HANDLE || result == FMOD_ERR_CHANNEL_STOLEN || (result == FMOD_OK && !active); });
     check(finished, "real short FMOD sound naturally completes");
     voice.volume = 0.4f;
-    check(!applyChannelState(voice) && voice.phase == ChannelData::Phase::Finished && !voice.channel && !voice.playing,
+    check(!applyChannelState(voice) && voice.phase == ChannelData::Phase::Finished && !voice.channel,
         "late property update marks completed handle Finished");
     ensurePaused(voice); ensurePlaying(voice, samples.at(19));
     check(!voice.channel && voice.voiceId == id && nextVoiceId == 1,
@@ -448,6 +450,40 @@ static void workerFinishAndLateEvents() {
         "status counts one natural finish and every rejected late event without detailed tracing");
 }
 
+static void missingAndLateOneShotsAreNotReplayed() {
+    section("a rejected first hit cannot start later when PCM arrives or PLAY repeats");
+    System system;
+    MappedSample mapped(30, 7);
+    Worker worker;
+    auto &ack = MyPool->sampleAcks[mapped.payload.sample % SAMPLE_ACK_COUNT];
+    Event load = {};
+    load.type = EVENT_SAMPLE_LOADED;
+    load.data.sampleLoaded = mapped.payload;
+    Event badLoad = load;
+    badLoad.data.sampleLoaded.format = SAMPLE_FORMAT_UNKNOWN;
+    worker.send(badLoad);
+    auto missing = state(350, 35, mapped.payload.sample, true);
+    worker.send(missing);
+    require(eventually([] { return MyPool->failureTail == 1; }), "missing PCM fails over only the affected hit");
+    check(ack.failedGeneration == LONG(mapped.payload.generation), "backend records the failed sample generation");
+    check(MyPool->channelFailures[0].channel == 350 && MyPool->channelFailures[0].generation == 35,
+        "failed cold play targets the original lifetime");
+
+    worker.send(load);
+    worker.send(missing);
+    auto late = state(351, 36, mapped.payload.sample, true);
+    late.data.channelState.time -= maxOneShotQueueMs + 100;
+    worker.send(late);
+    require(eventually([] { return MyPool->failureTail == 2; }), "expired one-shot fails over immediately");
+    worker.send(state(351, 36, mapped.payload.sample, true));
+    worker.send(state(352, 37, mapped.payload.sample, true));
+    require(eventually([] { return activeChannels() == 1; }), "a fresh hit with the loaded sample still plays");
+    check(MyPool->backendReady == 1, "local playback failures keep the backend ready");
+    worker.stop();
+    check(playbackStats.starts == 1 && playbackStats.missingSamples == 1 && playbackStats.lateOneShots == 1,
+        "neither rejected hit reaches FMOD, even after a later LOAD or duplicate PLAY");
+}
+
 static void removedLatePlay() {
     section("removed generation cannot be revived by a late PLAY event");
     System system; MappedSample mapped(31, 7, 48000);
@@ -599,7 +635,7 @@ static void loopHistoryLimit() {
     fresh.generation = 22;
     fresh.looping = true;
     ensurePlaying(fresh, samples.at(53));
-    check(fresh.channel && fresh.playing && nextVoiceId == allocations + 1,
+    check(fresh.channel && fresh.phase == ChannelData::Phase::Playing && nextVoiceId == allocations + 1,
         "new generation plays an actual FMOD voice after tombstone eviction");
     if (fresh.channel) FMOD_Channel_Stop(fresh.channel);
     FMOD_Sound_Release(samples.at(53).sound);
@@ -686,7 +722,8 @@ int wmain(int argc, wchar_t **argv) {
     printf("OutputRegression: real FMOD NOSOUND; production main never invoked; no acoustic/device validation\n");
     try {
         parser(); helpersAndVolume(); naturallyFinishedHelpers(); watching(); controlChannel();
-        workerFinishAndLateEvents(); removedLatePlay(); reusedGenerationLatePlay(); idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend(); recoveryHandshake(); recoveryReloadFailure();
+        workerFinishAndLateEvents(); missingAndLateOneShotsAreNotReplayed(); removedLatePlay(); reusedGenerationLatePlay();
+        idleWakeHeartbeat(); loopVoiceLoss(); loopHistoryLimit(); failingBackend(); recoveryHandshake(); recoveryReloadFailure();
     } catch (const std::exception &error) {
         printf("FATAL: %s\n", error.what());
         ++failures;

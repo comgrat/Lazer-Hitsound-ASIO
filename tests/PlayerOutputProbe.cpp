@@ -76,7 +76,7 @@ int main()
     voice.pan = -0.4f;
     voice.frequency = 24000;
     ensurePlaying(voice, samples.at(payload.sample));
-    check(voice.channel != nullptr && voice.playing, "start production voice");
+    check(voice.channel != nullptr && voice.phase == ChannelData::Phase::Playing, "start production voice");
     float value = -1;
     float bus = -1;
     check(FMOD_Channel_GetVolume(voice.channel, &value) == FMOD_OK &&
@@ -101,9 +101,10 @@ int main()
     check(playbackStats.starts == 1, "count successful unpause");
     ensurePaused(voice);
     FMOD_BOOL paused = false;
-    check(FMOD_Channel_GetPaused(voice.channel, &paused) == FMOD_OK && paused && !voice.playing, "pause");
+    check(FMOD_Channel_GetPaused(voice.channel, &paused) == FMOD_OK && paused && voice.phase == ChannelData::Phase::Paused, "pause");
     ensurePlaying(voice, samples.at(payload.sample));
-    check(playbackStats.starts == 2 && voice.playing && voice.voiceId==voiceIdentity, "resume same voice without duplicate creation");
+    check(playbackStats.starts == 2 && voice.phase == ChannelData::Phase::Playing && voice.voiceId==voiceIdentity,
+          "resume same voice without duplicate creation");
     voice.volume = 0;
     check(applyChannelState(voice), "zero sample gain accepted");
     check(FMOD_Channel_GetVolume(voice.channel, &value) == FMOD_OK && value == 0, "zero sample gain stays silent");

@@ -43,7 +43,7 @@ typedef DWORD HCHANNEL;
 
 const int EVENT_POOL_SIZE = 8192;
 const int MAPPING_NAME_LENGTH = 128;
-const DWORD ASIO_PROTOCOL_MAGIC = 0x41534936; // Recovery cause and lock diagnostics.
+const DWORD ASIO_PROTOCOL_MAGIC = 0x41534937; // Ordered cold sample playback.
 const int SAMPLE_ACK_COUNT = 4096;
 const int CHANNEL_FAILURE_COUNT = 256;
 
@@ -141,6 +141,7 @@ struct ChannelStatePayload
     float pan;
     float frequency;
     DWORD looping;
+    DWORD sampleGeneration;
 };
 
 struct ChannelRemovedPayload
@@ -197,6 +198,7 @@ struct sharepool
         volatile LONG sample;
         volatile LONG requestedGeneration;
         volatile LONG readyGeneration;
+        volatile LONG failedGeneration;
     } sampleAcks[SAMPLE_ACK_COUNT];
     Event events[EVENT_POOL_SIZE];
 };

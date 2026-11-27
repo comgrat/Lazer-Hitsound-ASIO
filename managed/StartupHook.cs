@@ -38,6 +38,8 @@ public static class Bridge
     static readonly Harmony harmony = new("osu.asio.offline.volume.v2");
     static readonly object installationLock = new();
     static readonly HashSet<Assembly> installed = new();
+    static MethodInfo? refreshAudioLayout;
+    static Type? audioMixerType;
     public static AudioContract.ContractMode Mode { get; set; }=AudioContract.ContractMode.Adaptive;
     static bool contractValidated;
     static bool validatingContract;
@@ -210,6 +212,10 @@ public static class Bridge
                     foreach (var constructor in manager.GetConstructors(fields)) Patch(constructor, postfix: nameof(ManagerCreated));
                     var mixer = assembly.GetType("osu.Framework.Graphics.Audio.DrawableAudioMixer", true)!;
                     Patch(mixer.GetMethod("load", fields)!, postfix: nameof(MixerLoaded));
+                    audioMixerType = assembly.GetType("osu.Framework.Audio.Mixing.IAudioMixer", true)!;
+                    var wrapper = assembly.GetType("osu.Framework.Graphics.Audio.DrawableAudioWrapper", true)!;
+                    refreshAudioLayout = wrapper.GetMethod("refreshLayoutFromParent", fields)
+                        ?? throw new MissingMethodException(wrapper.FullName, "refreshLayoutFromParent");
                     var channel = assembly.GetType("osu.Framework.Audio.Sample.SampleChannelBass", true)!;
                     Patch(channel.GetMethod("OnStateChanged", fields)!, prefix: nameof(ChannelChanging));
                     if (detailedPlayback) Patch(channel.GetMethod("Play", fields)!, prefix: nameof(PlaybackRequested));
@@ -218,6 +224,9 @@ public static class Bridge
                 }
                 else
                 {
+                    var pooledSample = assembly.GetType("osu.Game.Skinning.PoolableSkinnableSample", true)!;
+                    harmony.Patch(pooledSample.GetMethod("Play", fields)!,
+                        transpiler: new HarmonyMethod(typeof(Bridge), nameof(PrepareSampleBeforeGetChannel)));
                     var sound = assembly.GetType("osu.Game.Skinning.SkinnableSound", true)!;
                     Patch(sound.GetProperty("PlayWhenZeroVolume", fields)!.GetMethod!, postfix: nameof(AllowZeroVolumeEvent));
                     var playLambda = sound.GetMethods(fields).Single(m => m.Name.StartsWith("<Play>b__", StringComparison.Ordinal));
@@ -266,10 +275,13 @@ public static class Bridge
         try { ObserveManager(__instance); }
         catch (Exception exception) { Disable(exception); } // shared master setup
     }
+    static bool IsGameplayMixer(object owner) =>
+        (string?)(Field(owner, "Name") ?? Property(owner, "Name")) == "GameplayMixer";
+
     static void ObserveMixer(object owner)
     {
         if(Trace.Enabled)Interlocked.Increment(ref Trace.MixerLoads);
-        if((string?)(Field(owner,"Name")??Property(owner,"Name"))=="GameplayMixer") {
+        if(IsGameplayMixer(owner)) {
             exclusions.GetValue(Property(owner,"Volume")??throw new InvalidOperationException("Missing mixer volume"),_=>new(true));
             if(Trace.Enabled)Interlocked.Increment(ref Trace.GameplayMarkers);
         }
@@ -309,6 +321,62 @@ public static class Bridge
             cursor = Property(cursor, "Parent");
         }
     }
+
+    static void RefreshGameplayLayout(object start)
+    {
+        var refresh = refreshAudioLayout;
+        var mixerType = audioMixerType;
+        if (refresh == null || mixerType == null) return;
+
+        // Taiko replaces its pooled samples and plays them in the same update.
+        // Resolve the game framework's pending parent bindings before GetChannel.
+        List<object>? pending = null;
+        object? cursor = start;
+        for (int depth = 0; cursor != null && depth < 128; depth++, cursor = Property(cursor, "Parent"))
+        {
+            if (mixerType.IsInstanceOfType(cursor))
+            {
+                if (pending != null && IsType(cursor, "osu.Framework.Graphics.Audio.DrawableAudioMixer") && IsGameplayMixer(cursor))
+                    for (int index = pending.Count - 1; index >= 0; index--)
+                        refresh.Invoke(pending[index], null);
+                return;
+            }
+            if (refresh.DeclaringType!.IsInstanceOfType(cursor) &&
+                (Field(cursor, "fromParentLayout") is not { } layout || Property(layout, "IsValid") is not true))
+                (pending ??= new()).Add(cursor);
+        }
+    }
+
+    public static void PrepareGameplaySample(object sample)
+    {
+        try
+        {
+            if (liveMode && NativeReady()) RefreshGameplayLayout(sample);
+        }
+        catch (Exception exception) { ReportLocalFault(sample, exception); }
+    }
+
+    // The skin can create a new DrawableSample during Play, after the
+    // zero-volume gate has already run. Prepare that exact instance.
+    public static IEnumerable<CodeInstruction> PrepareSampleBeforeGetChannel(IEnumerable<CodeInstruction> instructions)
+    {
+        var result = new List<CodeInstruction>();
+        int changed = 0;
+        foreach (var instruction in instructions)
+        {
+            if (instruction.operand is MethodInfo method && method.Name == "GetChannel" &&
+                method.DeclaringType?.FullName == "osu.Framework.Graphics.Audio.DrawableSample")
+            {
+                result.Add(new CodeInstruction(OpCodes.Dup).MoveLabelsFrom(instruction).MoveBlocksFrom(instruction));
+                result.Add(new CodeInstruction(OpCodes.Call, typeof(Bridge).GetMethod(nameof(PrepareGameplaySample))));
+                changed++;
+            }
+            result.Add(instruction);
+        }
+        if (changed != 1) throw new NotSupportedException("Expected one DrawableSample.GetChannel call in PoolableSkinnableSample.Play.");
+        return result;
+    }
+
     static void ObserveSoundGraph(object container)
     {
         ObserveDrawableChain(container);
@@ -510,10 +578,15 @@ public static class Bridge
         {
             if (Trace.Enabled) Interlocked.Increment(ref Trace.ZeroChecks);
             object container = Field(__instance, "samplesContainer")!;
+            bool nativeReady = NativeReady();
             // Seed even when Looping already makes the original getter true.
             // Its subsequent channel callback still needs all wrapper nodes.
-            if (liveMode) ObserveSoundGraph(container);
-            if (__result || !NativeReady()) return;
+            if (liveMode)
+            {
+                if (nativeReady) RefreshGameplayLayout(container);
+                ObserveSoundGraph(container);
+            }
+            if (__result || !nativeReady) return;
             if (TrySampleGain(Property(container, "AggregateVolume")!, out _, out bool gameplay) && gameplay)
             {
                 __result = true;

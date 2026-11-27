@@ -167,7 +167,7 @@ static auto bassCall(asio::NativeCallId id,Function function,Args... args)->decl
 static unordered_map<HSAMPLE, SampleInfo> sampleInfoMap;
 static unordered_map<HCHANNEL, ChannelInfo> channelInfoMap;
 
-static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info);
+static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info, DWORD sampleGeneration = 0);
 static bool publishChannelState(HCHANNEL channel, DWORD state);
 static void logPrintf(const char *format, ...);
 
@@ -206,16 +206,20 @@ static bool backendAlive()
         asio::recoveryLeaseValid(MyPool,GetTickCount(),RECOVERY_SOURCE_HOOK);
 }
 
-static bool sampleReady(HSAMPLE sample)
+static DWORD playbackSampleGeneration(HSAMPLE sample, bool allowPending = false)
 {
     auto it = sampleInfoMap.find(sample);
     if (it == sampleInfoMap.end() || MyPool == NULL)
-        return false;
+        return 0;
     const auto &info = it->second;
-    if (info.ackIndex < 0 || info.ackIndex >= SAMPLE_ACK_COUNT) return false;
+    if (info.ackIndex < 0 || info.ackIndex >= SAMPLE_ACK_COUNT) return 0;
     const auto &ack = MyPool->sampleAcks[info.ackIndex];
-    return DWORD(ack.sample) == sample && DWORD(ack.requestedGeneration) == info.generation &&
-        DWORD(ack.readyGeneration) == info.generation;
+    if (DWORD(ack.sample) != sample || DWORD(ack.requestedGeneration) != info.generation)
+        return 0;
+    if (DWORD(ack.readyGeneration) == info.generation ||
+        (allowPending && DWORD(ack.failedGeneration) != info.generation))
+        return info.generation;
+    return 0;
 }
 
 static bool queueAvailable()
@@ -318,7 +322,8 @@ static bool pushEvent(const Event &event, bool recoveryReplay=false)
 
     Event queued = event;
     queued.epoch=DWORD(MyPool->epoch);
-    if (queued.type == EVENT_CHANNEL_STATE && MyPool->diagnosticsEnabled)
+    if (queued.type == EVENT_CHANNEL_STATE && queued.data.channelState.state == CHANNEL_STATE_PLAYING &&
+        (!queued.data.channelState.looping || MyPool->diagnosticsEnabled))
         queued.data.channelState.time = asio::qpcMilliseconds();
     MyPool->events[MyPool->tail] = queued;
     MemoryBarrier();
@@ -460,29 +465,29 @@ static bool publishSample(HSAMPLE sample)
     strncpy(event.data.sampleLoaded.mappingName, mappingName, MAPPING_NAME_LENGTH - 1);
     event.data.sampleLoaded.mappingName[MAPPING_NAME_LENGTH - 1] = '\0';
 
-    bool hadExisting = false;
-    SampleInfo previousSampleInfo;
     enterState();
-    auto existing = sampleInfoMap.find(sample);
-    if (existing != sampleInfoMap.end())
+    auto *ack = findSampleAck(sample, true);
+    bool published = false;
+    if (ack)
     {
-        previousSampleInfo = existing->second;
-        hadExisting = true;
-    }
-    sampleInfoMap[sample] = sampleInfo;
-    if (MyPool != NULL)
-    {
-        auto *ack = findSampleAck(sample, true);
-        if (ack)
+        sampleInfo.ackIndex = int(ack - MyPool->sampleAcks);
+        InterlockedExchange(&ack->readyGeneration, 0);
+        InterlockedExchange(&ack->failedGeneration, 0);
+        InterlockedExchange(&ack->requestedGeneration, LONG(generation));
+        // A first hit may use a pending sample. Expose it to PLAY only after
+        // its LOAD has been queued, while still holding the channel state lock.
+        published = pushEvent(event);
+        if (published)
+            sampleInfoMap.emplace(sample, sampleInfo);
+        else
         {
-            sampleInfoMap[sample].ackIndex = int(ack - MyPool->sampleAcks);
-            InterlockedExchange(&ack->readyGeneration, 0);
-            InterlockedExchange(&ack->requestedGeneration, LONG(generation));
+            InterlockedExchange(&ack->requestedGeneration, 0);
+            InterlockedExchange(&ack->sample, 0);
         }
     }
     leaveState();
 
-    if (pushEvent(event))
+    if (published)
     {
         logPrintf("[ASIO Hook] publishSample success sample=%lu length=%lu chans=%lu freq=%lu format=%lu flags=%lu\n",
                   (unsigned long)sample,
@@ -491,23 +496,11 @@ static bool publishSample(HSAMPLE sample)
                   (unsigned long)sampleInfo.sampleRate,
                   (unsigned long)sampleInfo.format,
                   (unsigned long)sampleInfo.flags);
-        if (hadExisting && previousSampleInfo.mappingHandle != NULL)
-            CloseHandle(previousSampleInfo.mappingHandle);
         return true;
     }
 
-    enterState();
-    auto it = sampleInfoMap.find(sample);
-    if (it != sampleInfoMap.end() && it->second.mappingHandle == mapping)
-    {
-        sampleInfoMap.erase(it);
-        if (hadExisting)
-            sampleInfoMap[sample] = previousSampleInfo;
-    }
-    leaveState();
-
     CloseHandle(mapping);
-    logPrintf("[ASIO Hook] publishSample failed sample=%lu step=push_event\n", (unsigned long)sample);
+    logPrintf("[ASIO Hook] publishSample failed sample=%lu step=%s\n", (unsigned long)sample, ack ? "push_event" : "sample_ack");
     return false;
 }
 
@@ -590,7 +583,11 @@ static bool serviceRecovery()
     EnterCriticalSection(&queueLock);
     InterlockedExchange(&MyPool->head,MyPool->tail);
     InterlockedExchange(&MyPool->failureHead,MyPool->failureTail);
-    for(auto &ack:MyPool->sampleAcks) InterlockedExchange(&ack.readyGeneration,0);
+    for (auto &ack : MyPool->sampleAcks)
+    {
+        InterlockedExchange(&ack.readyGeneration, 0);
+        InterlockedExchange(&ack.failedGeneration, 0);
+    }
     InterlockedExchange(&MyPool->retiredThroughGeneration,nextGeneration);
     InterlockedExchange(&MyPool->recoveryState,RECOVERY_REPLAYING);
     LeaveCriticalSection(&queueLock);
@@ -710,7 +707,7 @@ static void publishChannelUpdated(HCHANNEL channel, DWORD mask, const ChannelInf
     pushEvent(event);
 }
 
-static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info)
+static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo &info, DWORD sampleGeneration)
 {
     Event event = {};
     event.type = EVENT_CHANNEL_STATE;
@@ -718,6 +715,7 @@ static bool publishChannelStateLocked(HCHANNEL channel, DWORD state, ChannelInfo
     event.data.channelState.channel = channel;
     event.data.channelState.state = state;
     event.data.channelState.sample = info.sample;
+    event.data.channelState.sampleGeneration = sampleGeneration;
     event.data.channelState.volume = info.sampleGain;
     event.data.channelState.pan = info.pan;
     event.data.channelState.frequency = info.frequency;
@@ -768,19 +766,30 @@ static void startExternal(HCHANNEL channel, ChannelInfo &info)
     // Pause/resume need not create a generation. Invalidate an unlocked monitor
     // observation even when this is a repeated start for the same lifetime.
     ++info.playbackRevision;
-    bool alive = backendAlive(), ready = sampleReady(info.sample), queue = queueAvailable();
+    bool alive = backendAlive(), queue = queueAvailable();
     if(MyPool && info.allocationEpoch!=DWORD(MyPool->epoch)) info.routing.failover();
+    // Duplicate starts for a queued first hit keep the same ownership until
+    // the worker processes the load, even if BASS issues another play call.
+    const bool allowPending = !info.looping && (info.routing.route == asio::Route::Undecided || info.routing.playing);
+    const DWORD sampleGeneration = playbackSampleGeneration(info.sample, allowPending);
     traceCount(4);
     if (!info.eligible) traceCount(5);
     if (!alive) traceCount(6);
-    if (!ready) traceCount(7);
+    if (!sampleGeneration) traceCount(7);
     if (!queue) traceCount(8);
     if (info.routing.route == asio::Route::Native) traceCount(9);
-    if (info.routing.start(info.eligible, alive, ready, queue))
+    if (info.routing.start(info.eligible, alive, sampleGeneration != 0, queue))
     {
+        const DWORD generation = info.generation;
+        const auto revision = info.playbackRevision;
         // Mute only the identified channel; the native mixer still advances its timeline.
-        if (!bassCall(asio::NativeAttribute,pOrigBASS_ChannelSetAttribute,channel, BASS_ATTRIB_VOL, 0) ||
-            !publishChannelState(channel, CHANNEL_STATE_PLAYING))
+        const bool muted = bassCall(asio::NativeAttribute,pOrigBASS_ChannelSetAttribute,channel, BASS_ATTRIB_VOL, 0) != FALSE;
+        auto current = channelInfoMap.find(channel);
+        if (current == channelInfoMap.end() || current->second.generation != generation ||
+            current->second.playbackRevision != revision)
+            return;
+        if (!muted ||
+            !publishChannelStateLocked(channel, CHANNEL_STATE_PLAYING, info, sampleGeneration))
         {
             info.routing.failover();
             restoreNativeVolume(channel, info);
@@ -798,7 +807,7 @@ static bool muteBeforeStart(HCHANNEL channel)
     bool mute = it != channelInfoMap.end() && (it->second.routing.suppressNative() ||
         (it->second.routing.route == asio::Route::Undecided && it->second.eligible &&
          MyPool && it->second.allocationEpoch==DWORD(MyPool->epoch) &&
-         backendAlive() && sampleReady(it->second.sample) && queueAvailable()));
+         backendAlive() && playbackSampleGeneration(it->second.sample, !it->second.looping) && queueAvailable()));
     if (mute)
         mute = bassCall(asio::NativeAttribute,pOrigBASS_ChannelSetAttribute,channel, BASS_ATTRIB_VOL, 0) != FALSE;
     leaveState();
@@ -938,6 +947,7 @@ BOOL WINAPI MyBASS_SampleFree(HSAMPLE handle)
         if (ack && DWORD(ack->requestedGeneration) == sampleIt->second.generation)
         {
             InterlockedExchange(&ack->readyGeneration, 0);
+            InterlockedExchange(&ack->failedGeneration, 0);
             InterlockedExchange(&ack->requestedGeneration, 0);
             InterlockedExchange(&ack->sample, 0);
         }
