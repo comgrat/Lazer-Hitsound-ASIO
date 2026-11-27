@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Text.Json;
+using HarmonyLib;
 
 namespace LiveGraphResearch;
 
@@ -42,6 +43,8 @@ internal static class Program
             Fixture chart = BuildFixture("GameplayMixer");
             Fixture earlyReturn = BuildFixture("GameplayMixer");
             Fixture ui = BuildFixture("UIMixer");
+            Fixture freshDrum = BuildFixture("GameplayMixer", refreshSampleWrappers: false);
+            Fixture freshUi = BuildFixture("UIMixer", refreshSampleWrappers: false);
             Console.WriteLine("three-layer fixtures built before InstallLive");
             Check(!ReferenceEquals(GetF(chart.Top, "adjustments"), GetF(chart.DrawableSample, "adjustments")),
                 "fixture has distinct top/sample-container/drawable adjustments");
@@ -64,6 +67,18 @@ internal static class Program
 
             InstallNativeStubs();
             CheckPatches(originalGetter, originalLambda);
+
+            // Taiko sets Samples then immediately calls Play in the same scheduled action.
+            // The new sample wrappers have parents but have never run their first Update.
+            Check(GetF(freshDrum.DrawableSample, "mixer") == null, "fresh drum wrapper has not selected a mixer");
+            Check(Bridge.ShouldPlayAtZero(freshDrum.Sound), "first gameplay request at zero game volume is allowed");
+            Check(ReferenceEquals(MixerAtChannelCreation(freshDrum.Sound), freshDrum.Mixer),
+                "first play selects the gameplay mixer before a drawable update");
+            Send(freshDrum, out uint firstEligible, out float firstGain);
+            Check(firstEligible == 1 && Math.Abs(firstGain - 0.25f) < 1e-5f,
+                $"first drum sends an eligible context with sample gain 0.25 (actual {firstGain:F6})");
+            Check(!Bridge.ShouldPlayAtZero(freshUi.Sound) && MixerAtChannelCreation(freshUi.Pool) == null,
+                "fresh UI samples retain their normal mixer update and zero-volume behavior");
 
             // The getter is already JITted. A direct invocation goes through the
             // patched entry point; this is not evidence about an inlined copy in
@@ -284,7 +299,7 @@ internal static class Program
     // Real osu.Framework/osu.Game types; only fields that would otherwise be
     // populated by the game host are set through reflection. No game code runs,
     // no BASS call is made, no ASIO device is opened.
-    static Fixture BuildFixture(string mixerName)
+    static Fixture BuildFixture(string mixerName, bool refreshSampleWrappers = true)
     {
         var fixture = new Fixture();
 
@@ -319,7 +334,8 @@ internal static class Program
         fixture.Pool = pool;
         fixture.SampleContainer = poolContainer;
 
-        object sound = Activator.CreateInstance(T("osu.Game.Skinning.SkinnableSound", game))!;
+        object sound = Activator.CreateInstance(T(refreshSampleWrappers ? "osu.Game.Skinning.SkinnableSound" :
+            "osu.Game.Skinning.PausableSkinnableSound", game))!;
         object top = GetF(sound, "samplesContainer")!;
         Call(top, "Add", pool);
         fixture.Sound = sound;
@@ -360,9 +376,12 @@ internal static class Program
         SetP(drawableSample, "Parent", poolContainer);
 
         // Refresh the real parent chain once, exactly like Drawable.Update would.
-        Refresh(drawableSample);
-        Refresh(poolContainer);
-        Refresh(top);
+        if (refreshSampleWrappers)
+        {
+            Refresh(drawableSample);
+            Refresh(poolContainer);
+            Refresh(top);
+        }
 
         SetVolume(top, 0.5);
         SetVolume(poolContainer, 0.5);
@@ -386,6 +405,31 @@ internal static class Program
     }
 
     static readonly object sync = new();
+
+    sealed class ChannelCreationObserved(object? mixer) : Exception
+    {
+        public object? Mixer { get; } = mixer;
+    }
+
+    static void CaptureMixerBeforeBASS(object __instance) =>
+        throw new ChannelCreationObserved(GetF(__instance, "mixer"));
+
+    static object? MixerAtChannelCreation(object sound)
+    {
+        var method = T("osu.Framework.Graphics.Audio.DrawableSample", framework).GetMethod("GetChannel", All)!;
+        var harmony = new Harmony("asio.tests.capture-mixer");
+        harmony.Patch(method, prefix: new HarmonyMethod(typeof(Program), nameof(CaptureMixerBeforeBASS)));
+        try
+        {
+            Call(sound, "Play");
+            throw new InvalidOperationException("Test sample did not reach DrawableSample.GetChannel.");
+        }
+        catch (TargetInvocationException failure) when (failure.InnerException is ChannelCreationObserved observed)
+        {
+            return observed.Mixer;
+        }
+        finally { harmony.Unpatch(method, HarmonyPatchType.Prefix, harmony.Id); }
+    }
 
     static void Check(bool condition, string name, string? detail = null)
     {

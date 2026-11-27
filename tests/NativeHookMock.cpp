@@ -988,7 +988,7 @@ void test_resume_without_sample_ack_must_not_start_external()
 
     auto &ack = MyPool->sampleAcks[fixture.sample % SAMPLE_ACK_COUNT];
     InterlockedExchange(&ack.readyGeneration, 0);
-    CHECK_FALSE(sampleReady(fixture.sample));
+    CHECK_FALSE(playbackSampleGeneration(fixture.sample));
 
     CHECK_TRUE(MyBASS_Mixer_ChannelFlags(fixture.channel, 0, BASS_MIXER_CHAN_PAUSE) != DWORD(-1));
     std::vector<Event> events = eventsSnapshot();
@@ -1208,6 +1208,42 @@ void test_shared_debug_matches_keyed_settings()
     traceEnabled = false;
 }
 
+void test_cold_one_shot_queues_load_before_play()
+{
+    resetFixture();
+    Fixture fixture = createChannel(true, 0.25f, false);
+    CHECK_FALSE(playbackSampleGeneration(fixture.sample));
+    CHECK_EQ(playbackSampleGeneration(fixture.sample, true), fixture.sampleGeneration);
+    startExternal(fixture, 0.0f);
+    g_mock.active = 1;
+    CHECK_TRUE(MyBASS_ChannelPlay(fixture.channel, FALSE));
+
+    auto events = eventsSnapshot();
+    CHECK_EQ(countState(events, CHANNEL_STATE_PLAYING), 1);
+    auto load = std::find_if(events.begin(), events.end(), [](const Event &event) {
+        return event.type == EVENT_SAMPLE_LOADED;
+    });
+    auto play = std::find_if(events.begin(), events.end(), [](const Event &event) {
+        return event.type == EVENT_CHANNEL_STATE && event.data.channelState.state == CHANNEL_STATE_PLAYING;
+    });
+    CHECK_TRUE(load != events.end() && play != events.end() && load < play);
+    if (play != events.end())
+    {
+        CHECK_EQ(play->data.channelState.sampleGeneration, fixture.sampleGeneration);
+        CHECK_TRUE(play->data.channelState.time > 0);
+    }
+    CHECK_TRUE(routeIs(fixture.channel, asio::Route::External));
+
+    resetFixture();
+    fixture = createChannel(true, 0.25f, false);
+    auto *ack = findSampleAck(fixture.sample);
+    InterlockedExchange(&ack->failedGeneration, LONG(fixture.sampleGeneration));
+    startExternal(fixture, 0.5f);
+    CHECK_TRUE(routeIs(fixture.channel, asio::Route::Native));
+    CHECK_EQ(countState(eventsSnapshot(), CHANNEL_STATE_PLAYING), 0);
+    CHECK_NEAR(g_mock.nativeVolume[fixture.channel], 0.5f, 0.0f);
+}
+
 void test_wake_and_diagnostic_timestamps()
 {
     resetFixture();
@@ -1221,6 +1257,7 @@ void test_wake_and_diagnostic_timestamps()
     Event event = {};
     event.type = EVENT_CHANNEL_STATE;
     event.data.channelState.state = CHANNEL_STATE_PLAYING;
+    event.data.channelState.looping = 1;
     CHECK_TRUE(pushEvent(event));
     CHECK_EQ(WaitForSingleObject(wake, 0), WAIT_OBJECT_0);
     CHECK_EQ(WaitForSingleObject(wake, 0), WAIT_TIMEOUT);
@@ -1259,29 +1296,29 @@ void test_sample_ack_handle_collision_does_not_false_hit()
     CHECK_EQ(DWORD(secondAck->sample), second);
     CHECK_TRUE(findSampleAck(0x3101) == nullptr);
 
-    CHECK_FALSE(sampleReady(first));
-    CHECK_FALSE(sampleReady(second));
+    CHECK_FALSE(playbackSampleGeneration(first));
+    CHECK_FALSE(playbackSampleGeneration(second));
     InterlockedExchange(&firstAck->readyGeneration, firstAck->requestedGeneration);
-    CHECK_TRUE(sampleReady(first));
-    CHECK_FALSE(sampleReady(second));
+    CHECK_TRUE(playbackSampleGeneration(first));
+    CHECK_FALSE(playbackSampleGeneration(second));
     CHECK_EQ(DWORD(secondAck->sample), second);
     InterlockedExchange(&secondAck->readyGeneration, secondAck->requestedGeneration);
-    CHECK_TRUE(sampleReady(second));
+    CHECK_TRUE(playbackSampleGeneration(second));
     CHECK_EQ(DWORD(firstAck->sample), first);
     CHECK_EQ(DWORD(firstAck->readyGeneration), DWORD(firstAck->requestedGeneration));
     CHECK_EQ(sampleInfoMap.at(first).ackIndex, int(firstAck - MyPool->sampleAcks));
     CHECK_EQ(sampleInfoMap.at(second).ackIndex, int(secondAck - MyPool->sampleAcks));
     // Removing the first colliding sample must not break the cached second slot.
     CHECK_TRUE(MyBASS_SampleFree(first));
-    CHECK_TRUE(sampleReady(second));
+    CHECK_TRUE(playbackSampleGeneration(second));
     InterlockedExchange(&secondAck->requestedGeneration, secondAck->requestedGeneration + 1);
-    CHECK_FALSE(sampleReady(second));
+    CHECK_FALSE(playbackSampleGeneration(second));
     InterlockedExchange(&secondAck->requestedGeneration, secondAck->requestedGeneration - 1);
-    CHECK_TRUE(sampleReady(second));
+    CHECK_TRUE(playbackSampleGeneration(second));
     InterlockedExchange(&secondAck->sample, LONG(first));
-    CHECK_FALSE(sampleReady(second));
+    CHECK_FALSE(playbackSampleGeneration(second));
     InterlockedExchange(&secondAck->sample, LONG(second));
-    CHECK_TRUE(sampleReady(second));
+    CHECK_TRUE(playbackSampleGeneration(second));
 
     // Capacity is explicit: with every slot occupied by a different handle,
     // allocation must fail closed instead of overwriting an existing ACK.
@@ -1397,6 +1434,7 @@ void test_play_event_snapshot_keeps_gain_pan_frequency()
     {
         CHECK_EQ(playing->generation, fixture.generation);
         CHECK_EQ(playing->data.channelState.sample, fixture.sample);
+        CHECK_EQ(playing->data.channelState.sampleGeneration, fixture.sampleGeneration);
         CHECK_NEAR(playing->data.channelState.volume, 0.25f, 1.0e-6f);
         CHECK_NEAR(playing->data.channelState.pan, -0.3f, 1.0e-6f);
         CHECK_NEAR(playing->data.channelState.frequency, 96000.0f, 1.0e-6f);
@@ -1623,6 +1661,7 @@ int main()
         {"loop_failure_restores_only_matching_generation", test_loop_failure_restores_only_matching_generation},
         {"shared_debug_matches_keyed_settings", test_shared_debug_matches_keyed_settings},
         {"wake_and_diagnostic_timestamps", test_wake_and_diagnostic_timestamps},
+        {"cold_one_shot_queues_load_before_play", test_cold_one_shot_queues_load_before_play},
         {"sample_ack_handle_collision_does_not_false_hit",
          test_sample_ack_handle_collision_does_not_false_hit},
         {"restore_failure_sets_pending_and_monitor_retries",

@@ -59,19 +59,24 @@ void checkMixerFlagsUpdated(HCHANNEL channel, DWORD returned, DWORD expectedPaus
     CHECK_EQ(returned & kOfficialBuffer, kOfficialBuffer);
 }
 
-void runVolumeScenario(float gameVolume, bool tagged, bool acknowledge)
+enum class SampleLoad { Ready, Pending, Failed };
+
+void runVolumeScenario(float gameVolume, bool tagged, SampleLoad sample)
 {
     const int failuresBefore = g_failures;
-    const bool expectedExternal = tagged && acknowledge;
-    std::printf("[ RUN      ] game_volume=%.2f tagged=%d sample_ack=%d expected=%s\n",
-                gameVolume, tagged ? 1 : 0, acknowledge ? 1 : 0,
+    const bool expectedExternal = tagged && sample != SampleLoad::Failed;
+    const char *sampleState = sample == SampleLoad::Ready ? "ready" : sample == SampleLoad::Pending ? "pending" : "failed";
+    std::printf("[ RUN      ] game_volume=%.2f tagged=%d sample=%s expected=%s\n",
+                gameVolume, tagged ? 1 : 0, sampleState,
                 expectedExternal ? "external/PLAY+mute" : "native/no PLAY+no mute");
 
     resetFixture();
-    Fixture fixture = createChannel(tagged, 0.25f, acknowledge);
+    Fixture fixture = createChannel(tagged, 0.25f, sample == SampleLoad::Ready);
     CHECK_TRUE(fixture.channel != 0);
     if (fixture.channel == 0)
         return;
+    if (sample == SampleLoad::Failed)
+        InterlockedExchange(&findSampleAck(fixture.sample)->failedGeneration, LONG(fixture.sampleGeneration));
 
     setGameVolume(fixture.channel, gameVolume);
     clearEvents();
@@ -113,8 +118,8 @@ void runVolumeScenario(float gameVolume, bool tagged, bool acknowledge)
     }
 
     if (g_failures == failuresBefore)
-        std::printf("[       OK ] game_volume=%.2f tagged=%d sample_ack=%d\n",
-                    gameVolume, tagged ? 1 : 0, acknowledge ? 1 : 0);
+        std::printf("[       OK ] game_volume=%.2f tagged=%d sample=%s\n",
+                    gameVolume, tagged ? 1 : 0, sampleState);
 }
 
 void runPauseResumeScenario()
@@ -211,10 +216,11 @@ int main()
     const float volumes[] = {0.0f, 0.01f, 0.25f, 0.5f, 1.0f};
     for (float volume : volumes)
     {
-        runVolumeScenario(volume, true, true);
-        runVolumeScenario(volume, false, true);
+        runVolumeScenario(volume, true, SampleLoad::Ready);
+        runVolumeScenario(volume, false, SampleLoad::Ready);
     }
-    runVolumeScenario(0.5f, true, false); // tagged but sample ACK never arrives
+    runVolumeScenario(0.0f, true, SampleLoad::Pending);
+    runVolumeScenario(0.5f, true, SampleLoad::Failed);
     runPauseResumeScenario();
     runLoopReturnScenario();
 

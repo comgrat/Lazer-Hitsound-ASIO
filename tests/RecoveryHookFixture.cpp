@@ -17,7 +17,7 @@ extern "C" DWORD recoveryHookCreate() {
 }
 extern "C" bool recoveryHookSampleReady() {
     EnterCriticalSection(&stateLock);
-    bool ready=sampleReady(g_mock.sampleHandle);
+    bool ready=playbackSampleGeneration(g_mock.sampleHandle);
     LeaveCriticalSection(&stateLock);return ready;
 }
 extern "C" void recoveryHookStart(DWORD channel,bool restart) {

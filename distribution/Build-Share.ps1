@@ -1,7 +1,7 @@
 ﻿param(
     [Parameter(Mandatory=$true)][string]$OutputDirectory,
     [string]$SourceCommit=$env:ASIO_SOURCE_COMMIT,
-    [string]$PackageVersion='1.3.0',
+    [string]$PackageVersion='1.3.1',
     [string]$BinarySourceCommit=''
 )
 $ErrorActionPreference = 'Stop'

@@ -34,7 +34,7 @@ Clean defaults are **16 samples / Driver ID 0 / 48000 Hz / Output Volume 50 / De
 
 ## Compatibility and limits
 
-Reviewed references are .NET 10 Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`. Version 1.3.0 retains [three-tier contract validation](docs/AUDIO_CONTRACT.md). `LazerASIO.exe` always runs the Adaptive contract (`Contract Mode = 1`) and normalizes a hand-edited `0` back to Adaptive; Strict is not offered in the window. Adaptive requires structural signatures and critical semantic projections, permits unreviewed exact-hash drift only after these checks pass and displays `[Compat/Adaptive]`. `[Verified Contract]` identifies an exact match. Old five-field INIs are treated as Adaptive. A later client date/version alone does not establish compatibility.
+Reviewed references are .NET 10 Game `2026.1026.0-tachyon` / `2026.1110.0-tachyon` and Framework `2026.1019.0` / `2026.1030.0`. The bridge uses [three-tier contract validation](docs/AUDIO_CONTRACT.md). `LazerASIO.exe` always runs the Adaptive contract (`Contract Mode = 1`) and normalizes a hand-edited `0` back to Adaptive; Strict is not offered in the window. Adaptive requires structural signatures and critical semantic projections, permits unreviewed exact-hash drift only after these checks pass and displays `[Compat/Adaptive]`. `[Verified Contract]` identifies an exact match. Old five-field INIs are treated as Adaptive. A later client date/version alone does not establish compatibility.
 
 This tool injects a native hook and installs runtime adapters in the game process. Understand the client's rules before use; this project makes no account-safety guarantee. It does not overwrite the game client, account configuration or beatmap database.
 
